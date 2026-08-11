@@ -1,29 +1,22 @@
 #!/usr/bin/env python3
 """
 Luarmor Deobfuscator Discord Bot
-Usage: python main.py
+Built for BZMEMBER
 """
 
 import os
 import re
 import base64
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands
-from dotenv import load_dotenv
 
-# ── Config ──────────────────────────────────────────────────────────────
-
-load_dotenv()
-
-DISCORD_TOKEN = os.getenv("MTUzMzg1Nzc2MjA4ODU4MzE2OQ.GvEBD_.dEyTtgSHU9cvJJGB5dSLP0uwr4iS4uyb4gKKhg", "")
-MAX_CODE_LENGTH = 500_000
-MAX_FILE_SIZE = 5_000_000
+# ── Logging ──────────────────────────────────────────────────────────────
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,7 +25,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── Deobfuscation Engine ────────────────────────────────────────────────
+# ── Config ───────────────────────────────────────────────────────────────
+
+MAX_CODE_LENGTH = 500_000
+MAX_FILE_SIZE = 5_000_000
+
+# ── Stats Tracking ───────────────────────────────────────────────────────
 
 
 @dataclass
@@ -41,18 +39,20 @@ class DeobStats:
     dead_code_removed: int = 0
     variables_renamed: int = 0
     numbers_decoded: int = 0
-    control_flow_simplified: int = 0
     cleanups: int = 0
 
 
+# ── Deobfuscation Engine ─────────────────────────────────────────────────
+
+
 class DeobEngine:
-    """Simple multi-pass Lua deobfuscator."""
+    """Multi-pass Lua deobfuscator for Luarmor & generic patterns."""
 
     def __init__(self) -> None:
         self.stats = DeobStats()
 
     def _decrypt_xor_strings(self, code: str) -> str:
-        """Decrypt string.char(bit.bxor(string.byte(s, off), key))."""
+        """Decrypt: string.char(bit.bxor(string.byte(str, offset), key))"""
         pattern = re.compile(
             r'string\.char\s*\(\s*bit\.bxor\s*\(\s*string\.byte\s*\(\s*'
             r'["\'](.+?)["\']\s*,\s*\d+\s*\)\s*,\s*(\d+)\s*\)\s*\)',
@@ -69,7 +69,7 @@ class DeobEngine:
         return code
 
     def _decrypt_byte_arrays(self, code: str) -> str:
-        """Decrypt string.char(XX, YY, ZZ, ...)."""
+        """Decrypt: string.char(72, 101, 108, 108, 111)"""
         pattern = re.compile(r'string\.char\s*\(\s*([\d,\s]+)\s*\)')
         for match in pattern.finditer(code):
             try:
@@ -84,7 +84,7 @@ class DeobEngine:
         return code
 
     def _decrypt_base64(self, code: str) -> str:
-        """Decrypt base64 strings."""
+        """Decrypt base64 encoded strings."""
         pattern = re.compile(r'["\']([A-Za-z0-9+/=]{20,})["\']')
         for match in pattern.finditer(code):
             try:
@@ -97,26 +97,26 @@ class DeobEngine:
         return code
 
     def _remove_dead_code(self, code: str) -> str:
-        """Remove while false / if false blocks."""
-        for pattern in [
+        """Remove dead code blocks (while false, if nil, etc)."""
+        patterns = [
             r'while\s+(false|nil|0)\s+do\s*?.*?end',
             r'if\s+(false|nil)\s+then\s*?.*?end',
-        ]:
-            new_code = re.sub(pattern, "", code, flags=re.DOTALL | re.IGNORECASE)
+        ]
+        for pat in patterns:
+            new_code = re.sub(pat, "", code, flags=re.DOTALL | re.IGNORECASE)
             if new_code != code:
                 self.stats.dead_code_removed += 1
                 code = new_code
         return code
 
     def _rename_variables(self, code: str) -> str:
-        """Rename _0xABC123 → var_N / fn_N."""
+        """Rename obfuscated vars: _0xABC123 → var_N / fn_N"""
         rename_map: dict[str, str] = {}
         counters = {"func": 0, "var": 0}
 
         for match in re.finditer(r'_0x[a-fA-F0-9]{3,}', code):
             name = match.group(0)
             if name not in rename_map:
-                # Check if it's called as function
                 if re.search(rf'{re.escape(name)}\s*\(', code):
                     counters["func"] += 1
                     rename_map[name] = f"fn_{counters['func']}"
@@ -130,14 +130,14 @@ class DeobEngine:
         return code
 
     def _decode_numbers(self, code: str) -> str:
-        """Decode ~-NNN → -NNN."""
+        """Decode: ~-5 → -5"""
         for match in re.finditer(r'~-(\d+)', code):
             code = code.replace(match.group(0), str(-int(match.group(1))), 1)
             self.stats.numbers_decoded += 1
         return code
 
     def _unwrap_loadstring(self, code: str) -> str:
-        """Unwrap loadstring(loadstring("..."))."""
+        """Unwrap nested loadstring(loadstring("..."))."""
         for _ in range(5):
             match = re.search(
                 r'loadstring\s*\(\s*loadstring\s*\(\s*["\'](.+?)["\']\s*\)\s*\)',
@@ -153,12 +153,12 @@ class DeobEngine:
 
     def _cleanup(self, code: str) -> str:
         """General cleanup."""
-        code = re.sub(r'\n{3,}', "\n\n", code)
-        code = re.sub(r'[ \t]+', " ", code)
+        code = re.sub(r'\n{3,}', '\n\n', code)
+        code = re.sub(r'[ \t]+', ' ', code)
         return code.strip()
 
     def _detect_signatures(self, code: str) -> list[str]:
-        """Detect obfuscation signatures."""
+        """Detect obfuscation signatures present in code."""
         sigs = []
         checks = {
             "XOR strings": r'string\.char.*bit\.bxor',
@@ -175,30 +175,39 @@ class DeobEngine:
         return sigs
 
     def _calc_percentage(self, original: str, result: str) -> float:
-        """Calculate deob effectiveness."""
+        """Calculate deobfuscation effectiveness percentage."""
         if not original.strip():
             return 0.0
 
         score = 0.0
-        # Size reduction
+
+        # Size reduction (max 30%)
         orig_len = len(original.strip())
         new_len = len(result.strip())
         if orig_len > 0:
-            score += min(((orig_len - new_len) / orig_len) * 100, 30)
+            reduction = max(0, (orig_len - new_len) / orig_len * 100)
+            score += min(reduction, 30.0)
 
-        # Pattern-based scoring
-        score += min(self.stats.strings_decrypted * 5, 25)
-        score += min(self.stats.dead_code_removed * 4, 15)
-        score += min(self.stats.variables_renamed * 2, 15)
-        score += min(self.stats.numbers_decoded * 3, 10)
+        # Pattern scores
+        score += min(self.stats.strings_decrypted * 5, 25.0)
+        score += min(self.stats.dead_code_removed * 4, 15.0)
+        score += min(self.stats.variables_renamed * 2, 15.0)
+        score += min(self.stats.numbers_decoded * 3, 10.0)
 
         return round(min(score, 100.0), 1)
 
     def run(self, code: str) -> tuple[str, float, dict, list[str]]:
-        """Run all deob passes. Returns (output, percentage, stats_dict, signatures)."""
+        """
+        Run full deobfuscation pipeline.
+
+        Returns: (deobfuscated_code, percentage, stats_dict, signatures)
+        """
         original = code
 
-        # Run passes
+        # Reset stats
+        self.stats = DeobStats()
+
+        # Apply passes
         code = self._decrypt_xor_strings(code)
         code = self._decrypt_byte_arrays(code)
         code = self._decrypt_base64(code)
@@ -209,32 +218,30 @@ class DeobEngine:
         code = self._cleanup(code)
 
         percentage = self._calc_percentage(original, code)
+        signatures = self._detect_signatures(original)
 
         stats_dict = {
             "strings_decrypted": self.stats.strings_decrypted,
             "dead_code_removed": self.stats.dead_code_removed,
             "variables_renamed": self.stats.variables_renamed,
             "numbers_decoded": self.stats.numbers_decoded,
-            "control_flow_simplified": self.stats.control_flow_simplified,
             "cleanups": self.stats.cleanups,
         }
 
-        signatures = self._detect_signatures(original)
-
         # Build header
         header = (
-            f"-- ============================================\n"
-            f"-- Deobfuscated Output\n"
+            "-- ============================================\n"
+            "-- Luarmor Deobfuscated Output\n"
             f"-- Effectiveness: {percentage}%\n"
             f"-- Signatures: {', '.join(signatures) if signatures else 'Generic Lua'}\n"
             f"-- Stats: {stats_dict}\n"
-            f"-- ============================================\n\n"
+            "-- ============================================\n\n"
         )
 
         return header + code, percentage, stats_dict, signatures
 
 
-# ── Bot Setup ───────────────────────────────────────────────────────────
+# ── Bot ──────────────────────────────────────────────────────────────────
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -244,19 +251,19 @@ engine = DeobEngine()
 last_results: dict[int, tuple[str, float, dict, list[str]]] = {}
 
 
-# ── Commands ────────────────────────────────────────────────────────────
+# ── Slash Commands ───────────────────────────────────────────────────────
+
 
 @bot.tree.command(name="deob", description="แกะโค้ด Lua (Luarmor)")
 @app_commands.describe(
     code="แปะโค้ด Lua ที่ obfuscate มา",
-    file="หรือแนบไฟล์ .lua / .txt",
+    file="หรือแนบไฟล .lua / .txt",
 )
 async def deob_command(
     interaction: discord.Interaction,
     code: Optional[str] = None,
     file: Optional[discord.Attachment] = None,
 ):
-    """Deobfuscate Lua code."""
     if not code and not file:
         await interaction.response.send_message(
             "❌ ส่งโค้ดหรือไฟล์มาด้วย! ใช้ `/deob code=...` หรือแนบไฟล์",
@@ -294,18 +301,17 @@ async def deob_command(
     msg = await interaction.original_response()
 
     try:
-        # Reset engine stats
-        engine.stats = DeobStats()
-
         output, pct, stats, sigs = engine.run(lua_code)
         last_results[interaction.user.id] = (output, pct, stats, sigs)
 
-        # Build embed
-        color = (
-            discord.Color.green() if pct >= 70
-            else discord.Color.orange() if pct >= 40
-            else discord.Color.red()
-        )
+        # Color based on percentage
+        if pct >= 70:
+            color = discord.Color.green()
+        elif pct >= 40:
+            color = discord.Color.orange()
+        else:
+            color = discord.Color.red()
+
         embed = discord.Embed(
             title="🔓 Deobfuscation Complete",
             description=f"**Effectiveness: {pct}%**",
@@ -315,15 +321,27 @@ async def deob_command(
         embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
 
         if sigs:
-            embed.add_field(name="📋 Signatures", value="\n".join(f"• `{s}`" for s in sigs), inline=False)
+            embed.add_field(
+                name="📋 Detected Signatures",
+                value="\n".join(f"• `{s}`" for s in sigs),
+                inline=False,
+            )
 
         stat_lines = [f"{k}: **{v}**" for k, v in stats.items() if v > 0]
         if stat_lines:
-            embed.add_field(name="📊 Stats", value="\n".join(stat_lines), inline=False)
+            embed.add_field(name="📊 Statistics", value="\n".join(stat_lines), inline=False)
+
+        orig_len = len(lua_code.strip())
+        deob_len = len(output.strip())
+        embed.add_field(
+            name="📏 Size",
+            value=f"Original: `{orig_len:,}` chars → Deob: `{deob_len:,}` chars",
+            inline=False,
+        )
 
         embed.set_footer(text=f"Requested by {interaction.user.name}")
 
-        # Create .txt file
+        # Create output file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"deob_{timestamp}.txt"
 
@@ -341,12 +359,16 @@ async def deob_command(
         os.remove(filename)
 
     except Exception as e:
-        await msg.edit(content=f"❌ เกิดข้อผิดพลาด: `{e}`", embed=None, attachments=[])
+        logger.error(f"Deob error: {e}", exc_info=True)
+        await msg.edit(
+            content=f"❌ เกิดข้อผิดพลาด: `{e}`",
+            embed=None,
+            attachments=[],
+        )
 
 
 @bot.tree.command(name="deob-stats", description="ดูสถิติการแกะครั้งล่าสุด")
 async def deob_stats_command(interaction: discord.Interaction):
-    """Show last deob stats."""
     data = last_results.get(interaction.user.id)
     if not data:
         await interaction.response.send_message(
@@ -357,11 +379,8 @@ async def deob_stats_command(interaction: discord.Interaction):
 
     output, pct, stats, sigs = data
 
-    color = (
-        discord.Color.green() if pct >= 70
-        else discord.Color.orange() if pct >= 40
-        else discord.Color.red()
-    )
+    color = discord.Color.green() if pct >= 70 else discord.Color.orange() if pct >= 40 else discord.Color.red()
+
     embed = discord.Embed(
         title="📊 Last Deobfuscation Stats",
         description=f"**Effectiveness: {pct}%**",
@@ -380,7 +399,6 @@ async def deob_stats_command(interaction: discord.Interaction):
 
 @bot.tree.command(name="deob-help", description="คู่มือการใช้งาน")
 async def deob_help_command(interaction: discord.Interaction):
-    """Show help."""
     embed = discord.Embed(
         title="🔓 Luarmor Deobfuscator — Help",
         description=(
@@ -399,7 +417,8 @@ async def deob_help_command(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 
-# ── Events ──────────────────────────────────────────────────────────────
+# ── Events ───────────────────────────────────────────────────────────────
+
 
 @bot.event
 async def on_ready():
@@ -408,15 +427,23 @@ async def on_ready():
         synced = await bot.tree.sync()
         logger.info(f"🔄 Synced {len(synced)} slash commands")
     except Exception as e:
-        logger.error(f"⚠️ Sync failed: {e}")
+        logger.error(f"⚠️  Sync failed: {e}")
 
 
-# ── Entry Point ─────────────────────────────────────────────────────────
+# ── Entry Point ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    if not DISCORD_TOKEN or DISCORD_TOKEN == "ใส่_token_ของมึงตรงนี้":
-        print("❌ ไม่พบ DISCORD_TOKEN! แก้ไข .env ก่อนรัน")
+    # Get token from environment (Railway sets this as env var)
+    token = os.getenv("DISCORD_TOKEN", "").strip()
+
+    if not token:
+        print("❌ DISCORD_TOKEN not found!")
+        print("   → Go to Railway dashboard → Variables → Add DISCORD_TOKEN")
+        print(f"   → Current env vars containing TOKEN:")
+        for k, v in os.environ.items():
+            if "TOKEN" in k.upper() or "DISCORD" in k.upper():
+                print(f"      {k} = {v[:20]}...")
         exit(1)
 
     logger.info("🚀 Starting Luarmor Deob Bot...")
-    bot.run(DISCORD_TOKEN)
+    bot.run(token)
