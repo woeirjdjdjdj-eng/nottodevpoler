@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
+DISCORD_TOKEN = os.getenv("MTUzMzg1Nzc2MjA4ODU4MzE2OQ.GvEBD_.dEyTtgSHU9cvJJGB5dSLP0uwr4iS4uyb4gKKhg", "")
 MAX_CODE_LENGTH = 500_000
 MAX_FILE_SIZE = 5_000_000
 
