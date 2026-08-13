@@ -3,9 +3,9 @@ from discord.ext import commands
 from discord import app_commands
 import os
 import tempfile
+import aiohttp
 from deobfuscators.simple import simple_deobfuscate
 
-# ดึง Token จาก Environment Variable (Railway)
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 if not TOKEN:
@@ -24,21 +24,61 @@ async def on_ready():
     except Exception as e:
         print("เกิดข้อผิดพลาดตอน sync:", e)
 
+async def fetch_code_from_url(url: str) -> str:
+    """ดาวน์โหลดโค้ดจากลิงก์"""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status != 200:
+                raise Exception(f"ไม่สามารถเข้าถึงลิงก์ได้ (สถานะ {resp.status})")
+            return await resp.text()
+
 @bot.tree.command(name="deobf", description="แกะโค้ดที่ถูก obfuscate")
-@app_commands.describe(file="ไฟล์ .lua หรือ .txt ที่ต้องการแกะ")
-async def deobf(interaction: discord.Interaction, file: discord.Attachment):
+@app_commands.describe(
+    file="แนบไฟล์ .lua หรือ .txt",
+    code="แปะโค้ดตรงนี้",
+    url="ลิงก์โค้ด (เช่น raw.githubusercontent.com หรือ pastebin)"
+)
+async def deobf(
+    interaction: discord.Interaction,
+    file: discord.Attachment = None,
+    code: str = None,
+    url: str = None
+):
     await interaction.response.defer(thinking=True)
 
     try:
-        if not file.filename.lower().endswith((".lua", ".txt", ".luau")):
-            return await interaction.followup.send("❌ รองรับเฉพาะไฟล์ `.lua` `.txt` `.luau` เท่านั้น")
+        content = None
+        source_name = "unknown"
 
-        # ดาวน์โหลดไฟล์
-        temp = tempfile.NamedTemporaryFile(delete=False, suffix=".lua")
-        await file.save(temp.name)
+        # 1. กรณีแนบไฟล์
+        if file is not None:
+            if not file.filename.lower().endswith((".lua", ".txt", ".luau")):
+                return await interaction.followup.send("❌ รองรับเฉพาะไฟล์ `.lua` `.txt` `.luau` เท่านั้น")
 
-        with open(temp.name, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+            temp = tempfile.NamedTemporaryFile(delete=False, suffix=".lua")
+            await file.save(temp.name)
+
+            with open(temp.name, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            source_name = file.filename
+            os.remove(temp.name)
+
+        # 2. กรณีแปะโค้ด
+        elif code is not None and code.strip() != "":
+            content = code
+            source_name = "pasted_code"
+
+        # 3. กรณีใส่ลิงก์
+        elif url is not None and url.strip() != "":
+            if not url.startswith("http"):
+                return await interaction.followup.send("❌ ลิงก์ต้องขึ้นต้นด้วย http หรือ https")
+
+            content = await fetch_code_from_url(url.strip())
+            source_name = url
+
+        else:
+            return await interaction.followup.send("❌ กรุณาเลือกอย่างใดอย่างหนึ่ง: แนบไฟล์ / แปะโค้ด / ใส่ลิงก์")
 
         # แกะโค้ด
         result = simple_deobfuscate(content)
@@ -47,7 +87,7 @@ async def deobf(interaction: discord.Interaction, file: discord.Attachment):
         output_name = "deobfuscated.txt"
         with open(output_name, "w", encoding="utf-8") as f:
             f.write("-- ผลลัพธ์จากการแกะ\n")
-            f.write(f"-- ไฟล์ต้นฉบับ: {file.filename}\n\n")
+            f.write(f"-- แหล่งที่มา: {source_name}\n\n")
             f.write(result)
 
         await interaction.followup.send(
@@ -55,8 +95,6 @@ async def deobf(interaction: discord.Interaction, file: discord.Attachment):
             file=discord.File(output_name)
         )
 
-        # ลบไฟล์ชั่วคราว
-        os.remove(temp.name)
         os.remove(output_name)
 
     except Exception as e:
