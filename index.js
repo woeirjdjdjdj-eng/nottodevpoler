@@ -29,6 +29,7 @@ const CHOICE_LABEL = { day1: '1 วัน', day2: '2 วัน', day3: '3 วั
 const DATA_DIR = path.join(__dirname, 'data');
 const KEYS_FILE = path.join(DATA_DIR, 'keys.json');
 const COOLDOWN_FILE = path.join(DATA_DIR, 'cooldowns.json');
+const PANELS_FILE = path.join(DATA_DIR, 'panels.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -72,8 +73,27 @@ function saveCooldowns(cooldowns) {
   }
 }
 
+function loadPanels() {
+  try {
+    if (fs.existsSync(PANELS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(PANELS_FILE, 'utf8'));
+      return Array.isArray(data.panels) ? data.panels : [];
+    }
+  } catch (e) {}
+  return [];
+}
+
+function savePanels(panels) {
+  try {
+    fs.writeFileSync(PANELS_FILE, JSON.stringify({ panels }, null, 2));
+  } catch (e) {
+    console.error('บันทึกรายการหน้าต่างไม่สำเร็จ:', e.message);
+  }
+}
+
 let keys = loadKeys(); // { day1: [...], day2: [...], day3: [...] }
 let cooldowns = loadCooldowns(); // { userId: timestampLastSpin }
+let panels = loadPanels(); // [{ channelId, messageId }]
 
 // ป้องกันการกดสุ่มซ้อนกันระหว่างที่กำลังหมุนอยู่
 const spinningNow = new Set();
@@ -199,6 +219,24 @@ async function refreshPanel(message) {
   }
 }
 
+// ===== รีเฟรชหน้าต่างที่เคยสร้างไว้ "ทุกอัน" (เรียกทุกครั้งที่คีย์เปลี่ยน) =====
+async function refreshAllPanels() {
+  if (!panels.length) return;
+  const stillValid = [];
+  for (const p of panels) {
+    try {
+      const channel = await client.channels.fetch(p.channelId);
+      const message = await channel.messages.fetch(p.messageId);
+      await refreshPanel(message);
+      stillValid.push(p);
+    } catch (e) {
+      // ข้อความ/ช่องถูกลบไปแล้ว → ตัดออกจากรายการ
+    }
+  }
+  panels = stillValid;
+  savePanels(panels);
+}
+
 // ===== วงล้อ =====
 async function spinWheel(interaction, itemName, category) {
   const frames = [
@@ -320,6 +358,7 @@ client.on(Events.MessageCreate, async (message) => {
 
     keys[category].push(...newKeys);
     saveKeys(keys);
+    await refreshAllPanels(); // ปลดล็อกปุ่ม/อัปเดตจำนวนในทุกหน้าต่างที่เคยสร้างไว้
 
     await message.reply(
       `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเร็จ **${newKeys.length}** อัน\n` +
@@ -357,7 +396,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
           .setFooter({ text: footerText() })
           .setTimestamp();
 
-        return interaction.reply({ embeds: [embed], components: rows });
+        await interaction.reply({ embeds: [embed], components: rows });
+        const sentMessage = await interaction.fetchReply();
+        panels.push({ channelId: sentMessage.channelId, messageId: sentMessage.id });
+        savePanels(panels);
+        return;
       }
 
       // /เพิ่มคีย์
@@ -376,6 +419,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         keys[category].push(...newKeys);
         saveKeys(keys);
+        await refreshAllPanels(); // ปลดล็อกปุ่ม/อัปเดตจำนวนในทุกหน้าต่างที่เคยสร้างไว้
 
         return interaction.reply({
           content: `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเร็จ **${newKeys.length}** อัน\n` +
@@ -418,10 +462,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (target === 'all') {
           keys = { day1: [], day2: [], day3: [] };
           saveKeys(keys);
+          await refreshAllPanels(); // ล็อกปุ่มทุกหน้าต่างทันทีเมื่อคีย์ถูกล้าง
           return interaction.reply({ content: '🗑️ ล้าง Key ทั้งหมด (ทุกประเภท) เรียบร้อยแล้ว', flags: MessageFlags.Ephemeral });
         } else {
           keys[target] = [];
           saveKeys(keys);
+          await refreshAllPanels();
           return interaction.reply({ content: `🗑️ ล้าง Key ประเภท **${CHOICE_LABEL[target]}** เรียบร้อยแล้ว`, flags: MessageFlags.Ephemeral });
         }
       }
