@@ -1,5 +1,5 @@
 const {
-  Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  Client, GatewayIntentBits, Partials, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   EmbedBuilder, MessageFlags, Events, PermissionFlagsBits, REST, Routes,
   SlashCommandBuilder
 } = require('discord.js');
@@ -8,11 +8,27 @@ const path = require('path');
 require('dotenv').config();
 const config = require('./config');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent, // ต้องเปิด Privileged Intent ใน Developer Portal ด้วย
+  ],
+  partials: [Partials.Channel], // จำเป็นสำหรับรับ event ข้อความ DM
+});
 
-// ===== ระบบเก็บ Key =====
+// ===== ตั้งค่า =====
+const COOLDOWN_MS = 60 * 60 * 1000; // 1 ชั่วโมง / คน
+
+const CATEGORIES = ['day1', 'day2', 'day3'];
+const WIN_CHANCE = { day1: 0.50, day2: 0.25, day3: 0.10 };
+const LABEL = { day1: '1 วัน (50%)', day2: '2 วัน (25%)', day3: '3 วัน (10%)' };
+const CHOICE_LABEL = { day1: '1 วัน', day2: '2 วัน', day3: '3 วัน' };
+
+// ===== ระบบเก็บ Key (แยกตามประเภทวัน) =====
 const DATA_DIR = path.join(__dirname, 'data');
 const KEYS_FILE = path.join(DATA_DIR, 'keys.json');
+const COOLDOWN_FILE = path.join(DATA_DIR, 'cooldowns.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -20,45 +36,84 @@ function loadKeys() {
   try {
     if (fs.existsSync(KEYS_FILE)) {
       const data = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8'));
-      return Array.isArray(data.keys) ? data.keys : [];
+      return {
+        day1: Array.isArray(data.day1) ? data.day1 : [],
+        day2: Array.isArray(data.day2) ? data.day2 : [],
+        day3: Array.isArray(data.day3) ? data.day3 : [],
+      };
     }
   } catch (e) {}
-  return [];
+  return { day1: [], day2: [], day3: [] };
 }
 
 function saveKeys(keys) {
   try {
-    fs.writeFileSync(KEYS_FILE, JSON.stringify({ keys }, null, 2));
+    fs.writeFileSync(KEYS_FILE, JSON.stringify(keys, null, 2));
   } catch (e) {
     console.error('บันทึก Key ไม่สำเร็จ:', e.message);
   }
 }
 
-let availableKeys = loadKeys();
+function loadCooldowns() {
+  try {
+    if (fs.existsSync(COOLDOWN_FILE)) {
+      const data = JSON.parse(fs.readFileSync(COOLDOWN_FILE, 'utf8'));
+      return data && typeof data === 'object' ? data : {};
+    }
+  } catch (e) {}
+  return {};
+}
+
+function saveCooldowns(cooldowns) {
+  try {
+    fs.writeFileSync(COOLDOWN_FILE, JSON.stringify(cooldowns, null, 2));
+  } catch (e) {
+    console.error('บันทึกคูลดาวน์ไม่สำเร็จ:', e.message);
+  }
+}
+
+let keys = loadKeys(); // { day1: [...], day2: [...], day3: [...] }
+let cooldowns = loadCooldowns(); // { userId: timestampLastSpin }
+
+// ป้องกันการกดสุ่มซ้อนกันระหว่างที่กำลังหมุนอยู่
+const spinningNow = new Set();
+
+function formatRemaining(ms) {
+  const totalMin = Math.ceil(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h > 0) return `${h} ชั่วโมง ${m} นาที`;
+  return `${m} นาที`;
+}
+
+function footerText() {
+  return `1วัน เหลือ ${keys.day1.length} • 2วัน เหลือ ${keys.day2.length} • 3วัน เหลือ ${keys.day3.length}`;
+}
+
+function parseKeysInput(input) {
+  return input.split(/[\n,]+/).map(k => k.trim()).filter(Boolean);
+}
 
 // ===== ลงทะเบียนคำสั่งอัตโนมัติ =====
 async function deployCommands() {
   const commands = [
     new SlashCommandBuilder()
       .setName('เลือกห้อง')
-      .setDescription('สร้างปุ่มสุ่มวงล้อ (สูงสุด 10 ปุ่ม)')
+      .setDescription('สร้างปุ่มสุ่ม (เลือกระยะเวลา 1/2/3 วัน)')
       .addStringOption(o => o.setName('หัวข้อ').setDescription('ชื่อหัวข้อ / ชื่อหน้าต่าง').setRequired(false).setMaxLength(100))
-      .addStringOption(o => o.setName('รายการ1').setDescription('ชื่อปุ่มที่ 1').setRequired(true).setMaxLength(80))
-      .addStringOption(o => o.setName('รายการ2').setDescription('ชื่อปุ่มที่ 2').setRequired(false).setMaxLength(80))
-      .addStringOption(o => o.setName('รายการ3').setDescription('ชื่อปุ่มที่ 3').setRequired(false).setMaxLength(80))
-      .addStringOption(o => o.setName('รายการ4').setDescription('ชื่อปุ่มที่ 4').setRequired(false).setMaxLength(80))
-      .addStringOption(o => o.setName('รายการ5').setDescription('ชื่อปุ่มที่ 5').setRequired(false).setMaxLength(80))
-      .addStringOption(o => o.setName('รายการ6').setDescription('ชื่อปุ่มที่ 6').setRequired(false).setMaxLength(80))
-      .addStringOption(o => o.setName('รายการ7').setDescription('ชื่อปุ่มที่ 7').setRequired(false).setMaxLength(80))
-      .addStringOption(o => o.setName('รายการ8').setDescription('ชื่อปุ่มที่ 8').setRequired(false).setMaxLength(80))
-      .addStringOption(o => o.setName('รายการ9').setDescription('ชื่อปุ่มที่ 9').setRequired(false).setMaxLength(80))
-      .addStringOption(o => o.setName('รายการ10').setDescription('ชื่อปุ่มที่ 10').setRequired(false).setMaxLength(80))
+      .addStringOption(o => o.setName('รายการ1').setDescription('ชื่อห้อง / รายการ').setRequired(true).setMaxLength(80))
       .toJSON(),
 
     new SlashCommandBuilder()
       .setName('เพิ่มคีย์')
       .setDescription('เพิ่ม Key (แอดมินเท่านั้น)')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+      .addStringOption(o => o.setName('ประเภท').setDescription('ระยะเวลาของ Key').setRequired(true)
+        .addChoices(
+          { name: '1 วัน', value: 'day1' },
+          { name: '2 วัน', value: 'day2' },
+          { name: '3 วัน', value: 'day3' },
+        ))
       .addStringOption(o => o.setName('keys').setDescription('ใส่ Key คั่นด้วย , หรือขึ้นบรรทัดใหม่').setRequired(true))
       .toJSON(),
 
@@ -70,8 +125,15 @@ async function deployCommands() {
 
     new SlashCommandBuilder()
       .setName('ล้างคีย์')
-      .setDescription('ล้าง Key ทั้งหมด (แอดมินเท่านั้น)')
+      .setDescription('ล้าง Key (แอดมินเท่านั้น)')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+      .addStringOption(o => o.setName('ประเภท').setDescription('เลือกประเภทที่จะล้าง (ไม่เลือก = ล้างทั้งหมด)').setRequired(false)
+        .addChoices(
+          { name: '1 วัน', value: 'day1' },
+          { name: '2 วัน', value: 'day2' },
+          { name: '3 วัน', value: 'day3' },
+          { name: 'ทั้งหมด', value: 'all' },
+        ))
       .toJSON(),
   ];
 
@@ -89,8 +151,56 @@ async function deployCommands() {
   }
 }
 
+// ===== สร้างแถวปุ่ม 3 ปุ่ม (1/2/3 วัน) =====
+function buildRows(idSuffix) {
+  const row = new ActionRowBuilder();
+  for (const cat of CATEGORIES) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`spin_${cat}_${idSuffix}`)
+        .setLabel(LABEL[cat])
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('🎡')
+        .setDisabled(keys[cat].length === 0)
+    );
+  }
+  return [row];
+}
+
+function categoryFromCustomId(customId) {
+  for (const cat of CATEGORIES) {
+    if (customId.startsWith(`spin_${cat}_`)) return cat;
+  }
+  return null;
+}
+
+// ===== อัปเดตข้อความหลัก (แผงปุ่ม): footer จำนวน Key + ล็อกปุ่มที่หมด =====
+async function refreshPanel(message) {
+  try {
+    if (!message || !message.embeds || !message.embeds.length) return;
+
+    const oldEmbed = message.embeds[0];
+    const newEmbed = EmbedBuilder.from(oldEmbed).setFooter({ text: footerText() });
+
+    const newRows = message.components.map(row => {
+      const newRow = new ActionRowBuilder();
+      for (const comp of row.components) {
+        const cat = categoryFromCustomId(comp.customId);
+        const btn = ButtonBuilder.from(comp);
+        if (cat) btn.setDisabled(keys[cat].length === 0);
+        newRow.addComponents(btn);
+      }
+      return newRow;
+    });
+
+    await message.edit({ embeds: [newEmbed], components: newRows });
+  } catch (e) {
+    console.error('อัปเดตแผงปุ่มไม่สำเร็จ:', e.message);
+  }
+}
+
 // ===== วงล้อ =====
-async function spinWheel(interaction, itemName) {
+async function spinWheel(interaction, itemName, category) {
   const frames = [
     '🎡 ▶ ได้ ◀     ไม่ได้',
     '🎡   ได้   ▶ ไม่ได้ ◀',
@@ -99,43 +209,43 @@ async function spinWheel(interaction, itemName) {
     '🎡 ▶ ได้ ◀     ไม่ได้',
   ];
 
+  const tag = `${itemName} (${CHOICE_LABEL[category]})`;
+
   await interaction.reply({
-    content: `${config.messages.spinning}\n**${itemName}**\n\`\`\`\n${frames[0]}\n\`\`\``,
+    content: `${config.messages.spinning}\n**${tag}**\n\`\`\`\n${frames[0]}\n\`\`\``,
     flags: MessageFlags.Ephemeral,
   });
 
   for (let i = 1; i < frames.length; i++) {
     await new Promise(r => setTimeout(r, 350));
     await interaction.editReply({
-      content: `${config.messages.spinning}\n**${itemName}**\n\`\`\`\n${frames[i]}\n\`\`\``
+      content: `${config.messages.spinning}\n**${tag}**\n\`\`\`\n${frames[i]}\n\`\`\``
     });
   }
 
-  const isWin = Math.random() < config.winChance;
+  const isWin = Math.random() < WIN_CHANCE[category];
   let msg;
 
   if (isWin) {
-    if (availableKeys.length === 0) {
-      msg = config.messages.noKeys;
+    if (keys[category].length === 0) {
+      msg = `😢 ขออภัย **Key ประเภท ${CHOICE_LABEL[category]} หมดแล้ว** ไม่สามารถสุ่มได้ในตอนนี้`;
     } else {
-      // ได้ Key → ลบออกทันที
-      const key = availableKeys.splice(Math.floor(Math.random() * availableKeys.length), 1)[0];
-      saveKeys(availableKeys);
+      // ได้ Key → ลบออกทันที (กันซ้ำ)
+      const key = keys[category].splice(Math.floor(Math.random() * keys[category].length), 1)[0];
+      saveKeys(keys);
 
-      // ส่ง Key ไปทาง DM
       try {
         await interaction.user.send({
           embeds: [
             new EmbedBuilder()
               .setTitle('🎉 คุณชนะ!')
-              .setDescription(`คุณสุ่มจาก **${itemName}** แล้วได้ Key\n\n\`\`\`\n${key}\n\`\`\`\nกรุณาเก็บรักษาไว้ดีๆ นะครับ`)
+              .setDescription(`คุณสุ่มจาก **${tag}** แล้วได้ Key\n\n\`\`\`\n${key}\n\`\`\`\nกรุณาเก็บรักษาไว้ดีๆ นะครับ`)
               .setColor(0x57F287)
               .setTimestamp()
           ]
         });
         msg = config.messages.win;
       } catch (err) {
-        // ถ้าปิด DM → แสดงในข้อความส่วนตัวแทน
         msg = `🎉 **คุณชนะ!**\n(ส่ง DM ไม่สำเร็จ เพราะคุณปิดรับข้อความจากบอท)\n\nนี่คือ Key ของคุณ:\n\`\`\`\n${key}\n\`\`\``;
       }
     }
@@ -144,16 +254,18 @@ async function spinWheel(interaction, itemName) {
   }
 
   await new Promise(r => setTimeout(r, 400));
-  await interaction.editReply({ content: `**${itemName}**\n\n${msg}` });
+  await interaction.editReply({ content: `**${tag}**\n\n${msg}` });
+
+  // อัปเดตแผงปุ่มหลัก: footer + ล็อกปุ่มที่คีย์หมด
+  await refreshPanel(interaction.message);
 }
 
 // ===== Ready =====
 client.once(Events.ClientReady, async (c) => {
-  console.log(`✅ ออนไลน์: ${c.user.tag} | Key เหลือ: ${availableKeys.length}`);
+  console.log(`✅ ออนไลน์: ${c.user.tag} | Key: 1วัน=${keys.day1.length} 2วัน=${keys.day2.length} 3วัน=${keys.day3.length}`);
 
   await deployCommands();
 
-  // ส่งข้อความหาเจ้าของบอท
   try {
     const owner = await client.users.fetch(config.ownerId);
     await owner.send({
@@ -162,14 +274,16 @@ client.once(Events.ClientReady, async (c) => {
           .setTitle('🤖 บอทพร้อมใช้งานแล้ว')
           .setDescription(
             `**สถานะ:** ออนไลน์\n` +
-            `**Key ที่เหลือ:** ${availableKeys.length} อัน\n\n` +
+            `**Key คงเหลือ:** 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}\n` +
+            `**คูลดาวน์:** ${COOLDOWN_MS / 60000} นาที/คน\n\n` +
             `**คำสั่งหลัก:**\n` +
-            `\`/เลือกห้อง\` → สร้างปุ่มสุ่ม\n` +
-            `\`/เพิ่มคีย์\` → เพิ่ม Key\n` +
+            `\`/เลือกห้อง\` → สร้างปุ่มสุ่ม (1/2/3 วัน)\n` +
+            `\`/เพิ่มคีย์\` → เพิ่ม Key ตามประเภท\n` +
             `\`/ดูคีย์\` → ดู Key ที่เหลือ\n` +
-            `\`/ล้างคีย์\` → ล้าง Key ทั้งหมด\n\n` +
-            `**ตัวอย่างการใช้:**\n` +
-            `\`/เลือกห้อง หัวข้อ:สุ่มของรางวัล รายการ1:ห้อง VIP รายการ2:ห้องปกติ\``
+            `\`/ล้างคีย์\` → ล้าง Key\n\n` +
+            `**ทางลัด:** ส่ง DM ข้อความมาที่บอทได้เลย จะถูกเก็บเป็น Key อัตโนมัติ\n` +
+            `นำหน้าด้วย \`1:\`, \`2:\`, \`3:\` เพื่อระบุประเภทวัน (ไม่ใส่ = ถือเป็น 1 วัน)\n` +
+            `เช่น \`2:ABCD-1234-EFGH\``
           )
           .setColor(0x57F287)
           .setTimestamp()
@@ -177,6 +291,42 @@ client.once(Events.ClientReady, async (c) => {
     });
   } catch (e) {
     console.log('ส่ง DM หาเจ้าของไม่สำเร็จ');
+  }
+});
+
+// ===== รับ DM จากเจ้าของบอท → เก็บเป็น Key อัตโนมัติ =====
+client.on(Events.MessageCreate, async (message) => {
+  try {
+    if (message.author.bot) return;
+    if (message.guild) return; // เฉพาะ DM เท่านั้น
+    if (message.author.id !== config.ownerId) return;
+
+    const raw = message.content?.trim();
+    if (!raw) return;
+
+    let category = 'day1';
+    let body = raw;
+
+    const prefixMatch = raw.match(/^([123])\s*(?:วัน)?\s*[:\-]\s*([\s\S]+)$/i);
+    if (prefixMatch) {
+      category = `day${prefixMatch[1]}`;
+      body = prefixMatch[2];
+    }
+
+    const newKeys = parseKeysInput(body);
+    if (!newKeys.length) {
+      return message.reply('❌ ไม่พบข้อความ Key ที่จะเพิ่ม');
+    }
+
+    keys[category].push(...newKeys);
+    saveKeys(keys);
+
+    await message.reply(
+      `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเร็จ **${newKeys.length}** อัน\n` +
+      `ตอนนี้เหลือ: 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}`
+    );
+  } catch (e) {
+    console.error('รับ DM key ไม่สำเร็จ:', e.message);
   }
 });
 
@@ -189,41 +339,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // /เลือกห้อง
       if (name === 'เลือกห้อง') {
         const title = interaction.options.getString('หัวข้อ') || '🎡 เลือกห้อง / สุ่มรางวัล';
-        const items = [];
-        for (let i = 1; i <= 10; i++) {
-          const v = interaction.options.getString(`รายการ${i}`);
-          if (v) items.push(v.trim());
-        }
+        const item = interaction.options.getString('รายการ1', true).trim();
 
-        if (!items.length) {
-          return interaction.reply({ content: '❌ ใส่รายการอย่างน้อย 1 อัน', flags: MessageFlags.Ephemeral });
-        }
-
-        const rows = [];
-        for (let i = 0; i < items.length; i += 5) {
-          const row = new ActionRowBuilder();
-          items.slice(i, i + 5).forEach(item => {
-            row.addComponents(
-              new ButtonBuilder()
-                .setCustomId(`spin_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`)
-                .setLabel(item.slice(0, 80))
-                .setStyle(ButtonStyle.Primary)
-                .setEmoji('🎡')
-            );
-          });
-          rows.push(row);
-        }
+        const idSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const rows = buildRows(idSuffix);
 
         const embed = new EmbedBuilder()
           .setTitle(title)
           .setDescription(
-            `กดปุ่มด้านล่างเพื่อหมุนวงล้อ\n` +
-            `โอกาสชนะ **50%**\n` +
+            `**${item}**\n\n` +
+            `เลือกระยะเวลาที่ต้องการสุ่ม แล้วกดปุ่มเพื่อหมุนวงล้อ\n` +
+            `สุ่มได้ **1 ครั้ง / ${COOLDOWN_MS / 60000} นาที** ต่อคน\n` +
             `ผลลัพธ์จะเห็นเฉพาะคุณเท่านั้น\n\n` +
-            `**รายการ:**\n${items.map((x, i) => `${i + 1}. ${x}`).join('\n')}`
+            `🔹 ${LABEL.day1}\n🔹 ${LABEL.day2}\n🔹 ${LABEL.day3}`
           )
           .setColor(0x5865F2)
-          .setFooter({ text: `Key เหลือ ${availableKeys.length} อัน • สร้างโดย ${interaction.user.tag}` })
+          .setFooter({ text: footerText() })
           .setTimestamp();
 
         return interaction.reply({ embeds: [embed], components: rows });
@@ -235,18 +366,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction.reply({ content: '❌ คำสั่งนี้สำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
         }
 
+        const category = interaction.options.getString('ประเภท', true);
         const input = interaction.options.getString('keys', true);
-        const newKeys = input.split(/[\n,]+/).map(k => k.trim()).filter(Boolean);
+        const newKeys = parseKeysInput(input);
 
         if (!newKeys.length) {
           return interaction.reply({ content: '❌ ไม่พบ Key ที่จะเพิ่ม', flags: MessageFlags.Ephemeral });
         }
 
-        availableKeys.push(...newKeys);
-        saveKeys(availableKeys);
+        keys[category].push(...newKeys);
+        saveKeys(keys);
 
         return interaction.reply({
-          content: `✅ เพิ่ม Key สำเร็จ **${newKeys.length}** อัน\nตอนนี้เหลือทั้งหมด **${availableKeys.length}** อัน`,
+          content: `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเร็จ **${newKeys.length}** อัน\n` +
+            `ตอนนี้เหลือ: 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}`,
           flags: MessageFlags.Ephemeral
         });
       }
@@ -257,13 +390,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction.reply({ content: '❌ คำสั่งนี้สำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
         }
 
-        const list = availableKeys.length
-          ? availableKeys.slice(0, 15).map((k, i) => `${i + 1}. \`${k}\``).join('\n') +
-            (availableKeys.length > 15 ? `\n...และอีก ${availableKeys.length - 15} อัน` : '')
-          : 'ไม่มี Key เหลือแล้ว';
+        const section = (cat) => {
+          const list = keys[cat];
+          if (!list.length) return 'ไม่มี Key เหลือแล้ว';
+          return list.slice(0, 10).map((k, i) => `${i + 1}. \`${k}\``).join('\n') +
+            (list.length > 10 ? `\n...และอีก ${list.length - 10} อัน` : '');
+        };
 
         return interaction.reply({
-          content: `🔑 **Key ที่เหลือ: ${availableKeys.length} อัน**\n\n${list}`,
+          content:
+            `🔑 **Key คงเหลือ**\n\n` +
+            `**1 วัน (${keys.day1.length} อัน)**\n${section('day1')}\n\n` +
+            `**2 วัน (${keys.day2.length} อัน)**\n${section('day2')}\n\n` +
+            `**3 วัน (${keys.day3.length} อัน)**\n${section('day3')}`,
           flags: MessageFlags.Ephemeral
         });
       }
@@ -274,16 +413,61 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction.reply({ content: '❌ คำสั่งนี้สำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
         }
 
-        availableKeys = [];
-        saveKeys(availableKeys);
+        const target = interaction.options.getString('ประเภท') || 'all';
 
-        return interaction.reply({ content: '🗑️ ล้าง Key ทั้งหมดเรียบร้อยแล้ว', flags: MessageFlags.Ephemeral });
+        if (target === 'all') {
+          keys = { day1: [], day2: [], day3: [] };
+          saveKeys(keys);
+          return interaction.reply({ content: '🗑️ ล้าง Key ทั้งหมด (ทุกประเภท) เรียบร้อยแล้ว', flags: MessageFlags.Ephemeral });
+        } else {
+          keys[target] = [];
+          saveKeys(keys);
+          return interaction.reply({ content: `🗑️ ล้าง Key ประเภท **${CHOICE_LABEL[target]}** เรียบร้อยแล้ว`, flags: MessageFlags.Ephemeral });
+        }
       }
     }
 
     // กดปุ่ม
     if (interaction.isButton() && interaction.customId.startsWith('spin_')) {
-      await spinWheel(interaction, interaction.component.label);
+      const category = categoryFromCustomId(interaction.customId);
+      if (!category) return;
+
+      const userId = interaction.user.id;
+
+      if (spinningNow.has(userId)) {
+        return interaction.reply({ content: '⏳ กำลังหมุนอยู่ กรุณารอสักครู่...', flags: MessageFlags.Ephemeral });
+      }
+
+      // เช็คคูลดาวน์ 1 ชั่วโมง/คน
+      const now = Date.now();
+      const lastSpin = cooldowns[userId] || 0;
+      const elapsed = now - lastSpin;
+
+      if (elapsed < COOLDOWN_MS) {
+        const remaining = COOLDOWN_MS - elapsed;
+        return interaction.reply({
+          content: `⏰ คุณเพิ่งสุ่มไปแล้ว กรุณารออีก **${formatRemaining(remaining)}** ก่อนสุ่มครั้งถัดไป`,
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+      // เช็คคีย์หมด (ล็อกไม่ให้สุ่ม) ก่อนเริ่มหมุน
+      if (keys[category].length === 0) {
+        await refreshPanel(interaction.message); // sync ปุ่มให้ล็อกทันทีเผื่อยังไม่ได้อัปเดต
+        return interaction.reply({ content: `😢 ขออภัย **Key ประเภท ${CHOICE_LABEL[category]} หมดแล้ว**`, flags: MessageFlags.Ephemeral });
+      }
+
+      // ล็อกคูลดาวน์ทันทีก่อนหมุน กันกดรัว/สแปม
+      cooldowns[userId] = now;
+      saveCooldowns(cooldowns);
+      spinningNow.add(userId);
+
+      try {
+        const itemName = interaction.message.embeds[0]?.description?.split('\n')[0]?.replace(/\*\*/g, '') || 'รางวัล';
+        await spinWheel(interaction, itemName, category);
+      } finally {
+        spinningNow.delete(userId);
+      }
     }
 
   } catch (err) {
