@@ -307,18 +307,8 @@ async function spinWheel(interaction, itemName, category) {
 
       let dmSent = true;
       try {
-        // ข้อความที่ 1: คีย์ล้วนๆ กดค้างคัดลอกง่าย
-        await interaction.user.send({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle('🔑 Key ของคุณ')
-              .setDescription(
-                `\`\`\`\n${key}\n\`\`\`\n` +
-                `👆 กดค้างที่คีย์ด้านบนแล้วเลือก "คัดลอก / Copy"`
-              )
-              .setColor(0x57F287)
-          ]
-        });
+        // ข้อความที่ 1: คีย์ล้วนๆ ไม่มีข้อความอื่นใดๆ
+        await interaction.user.send({ content: key });
 
         // ข้อความที่ 2: รายละเอียดแยกต่างหาก
         await interaction.user.send({
@@ -354,16 +344,8 @@ async function spinWheel(interaction, itemName, category) {
       await interaction.editReply({ embeds: [resultEmbed] });
 
       if (!dmSent) {
-        // แยกส่งคีย์เป็นข้อความเดี่ยวๆ (ephemeral) กดคัดลอกง่าย
-        await interaction.followUp({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle('🔑 Key ของคุณ')
-              .setDescription(`\`\`\`\n${key}\n\`\`\`\n👆 กดค้างที่คีย์ด้านบนแล้วเลือก "คัดลอก / Copy"`)
-              .setColor(0x57F287)
-          ],
-          flags: MessageFlags.Ephemeral
-        });
+        // แยกส่งคีย์เป็นข้อความเดี่ยวๆ (ephemeral) ล้วนๆ ไม่มีข้อความอื่น
+        await interaction.followUp({ content: key, flags: MessageFlags.Ephemeral });
       }
 
       await refreshPanel(interaction.message);
