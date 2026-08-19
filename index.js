@@ -1,110 +1,103 @@
 const {
   Client, GatewayIntentBits, Partials, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   EmbedBuilder, MessageFlags, Events, PermissionFlagsBits, REST, Routes,
-  SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle
+  SlashCommandBuilder
 } = require('discord.js');
-const express = require('express');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
+const config = require('./config');
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.MessageContent, // ต้องเปิด Privileged Intent ใน Developer Portal ด้วย
   ],
-  partials: [Partials.Channel],
+  partials: [Partials.Channel], // จำเป็นสำหรับรับ event ข้อความ DM
 });
 
-// ===== ตังคา่ =====
-const COOLDOWN_MS = 60 * 60 * 1000;
+// ===== ตั้งค่า =====
+const COOLDOWN_MS = 60 * 60 * 1000; // 1 ชั่วโมง / คน
 
-// ระบบสุม
-const SPIN_CATEGORIES = ['day1', 'day2', 'day3'];
+const CATEGORIES = ['day1', 'day2', 'day3'];
 const WIN_CHANCE = { day1: 0.50, day2: 0.25, day3: 0.10 };
-const SPIN_LABEL = { day1: '1 วัน (50%)', day2: '2 วัน (25%)', day3: '3 วัน (10%)' };
+const LABEL = { day1: '1 วัน (50%)', day2: '2 วัน (25%)', day3: '3 วัน (10%)' };
 const CHOICE_LABEL = { day1: '1 วัน', day2: '2 วัน', day3: '3 วัน' };
 
-// ระบบขาย
-const SHOP_CATEGORIES = ['shopday2', 'shopday3'];
-const SHOP_LABEL = { shopday2: '2 วัน — 10฿', shopday3: '3 วัน — 15฿' };
-const SHOP_CHOICE_LABEL = { shopday2: '2 วัน (10฿)', shopday3: '3 วัน (15฿)' };
-const SHOP_PRICE = { shopday2: 10, shopday3: 15 };
-const SHOP_TO_SPIN = { shopday2: 'day2', shopday3: 'day3' };
-
-// TrueMoney
-const TRUE_PHONE = process.env.TRUE_PHONE || '0935914844';
-
-// ===== Data Files =====
+// ===== ระบบเก็บ Key (แยกตามประเภทวัน) =====
 const DATA_DIR = path.join(__dirname, 'data');
 const KEYS_FILE = path.join(DATA_DIR, 'keys.json');
-const SHOP_KEYS_FILE = path.join(DATA_DIR, 'shop_keys.json');
 const COOLDOWN_FILE = path.join(DATA_DIR, 'cooldowns.json');
 const PANELS_FILE = path.join(DATA_DIR, 'panels.json');
-const SHOP_PANELS_FILE = path.join(DATA_DIR, 'shop_panels.json');
-const TRANSACTIONS_FILE = path.join(DATA_DIR, 'transactions.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-// ===== Load / Save =====
-function loadJSON(file, fallback) {
+function loadKeys() {
   try {
-    if (fs.existsSync(file)) {
-      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-      return data && typeof data === 'object' ? data : fallback;
+    if (fs.existsSync(KEYS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8'));
+      return {
+        day1: Array.isArray(data.day1) ? data.day1 : [],
+        day2: Array.isArray(data.day2) ? data.day2 : [],
+        day3: Array.isArray(data.day3) ? data.day3 : [],
+      };
     }
   } catch (e) {}
-  return fallback;
+  return { day1: [], day2: [], day3: [] };
 }
 
-function saveJSON(file, data) {
+function saveKeys(keys) {
   try {
-    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+    fs.writeFileSync(KEYS_FILE, JSON.stringify(keys, null, 2));
   } catch (e) {
-    console.error(`บันทึก ${path.basename(file)} ไม่สำเรจ:`, e.message);
+    console.error('บันทึก Key ไม่สำเร็จ:', e.message);
   }
 }
 
-function loadKeys() {
-  const data = loadJSON(KEYS_FILE, {});
-  return {
-    day1: Array.isArray(data.day1) ? data.day1 : [],
-    day2: Array.isArray(data.day2) ? data.day2 : [],
-    day3: Array.isArray(data.day3) ? data.day3 : [],
-  };
+function loadCooldowns() {
+  try {
+    if (fs.existsSync(COOLDOWN_FILE)) {
+      const data = JSON.parse(fs.readFileSync(COOLDOWN_FILE, 'utf8'));
+      return data && typeof data === 'object' ? data : {};
+    }
+  } catch (e) {}
+  return {};
 }
 
-function loadShopKeys() {
-  const data = loadJSON(SHOP_KEYS_FILE, {});
-  return {
-    shopday2: Array.isArray(data.shopday2) ? data.shopday2 : [],
-    shopday3: Array.isArray(data.shopday3) ? data.shopday3 : [],
-  };
+function saveCooldowns(cooldowns) {
+  try {
+    fs.writeFileSync(COOLDOWN_FILE, JSON.stringify(cooldowns, null, 2));
+  } catch (e) {
+    console.error('บันทึกคูลดาวน์ไม่สำเร็จ:', e.message);
+  }
 }
 
-function loadCooldowns() { return loadJSON(COOLDOWN_FILE, {}); }
 function loadPanels() {
-  const data = loadJSON(PANELS_FILE, { panels: [] });
-  return Array.isArray(data.panels) ? data.panels : [];
-}
-function loadShopPanels() {
-  const data = loadJSON(SHOP_PANELS_FILE, { panels: [] });
-  return Array.isArray(data.panels) ? data.panels : [];
-}
-function loadTransactions() {
-  return loadJSON(TRANSACTIONS_FILE, { transactions: [] });
+  try {
+    if (fs.existsSync(PANELS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(PANELS_FILE, 'utf8'));
+      return Array.isArray(data.panels) ? data.panels : [];
+    }
+  } catch (e) {}
+  return [];
 }
 
-let keys = loadKeys();
-let shopKeys = loadShopKeys();
-let cooldowns = loadCooldowns();
-let panels = loadPanels();
-let shopPanels = loadShopPanels();
-let transactions = loadTransactions();
+function savePanels(panels) {
+  try {
+    fs.writeFileSync(PANELS_FILE, JSON.stringify({ panels }, null, 2));
+  } catch (e) {
+    console.error('บันทึกรายการหน้าต่างไม่สำเร็จ:', e.message);
+  }
+}
 
+let keys = loadKeys(); // { day1: [...], day2: [...], day3: [...] }
+let cooldowns = loadCooldowns(); // { userId: timestampLastSpin }
+let panels = loadPanels(); // [{ channelId, messageId }]
+
+// ป้องกันการกดสุ่มซ้อนกันระหว่างที่กำลังหมุนอยู่
 const spinningNow = new Set();
 
-// ===== Helpers =====
 function formatRemaining(ms) {
   const totalMin = Math.ceil(ms / 60000);
   const h = Math.floor(totalMin / 60);
@@ -113,80 +106,15 @@ function formatRemaining(ms) {
   return `${m} นาที`;
 }
 
-function spinFooterText() {
+function footerText() {
   return `1วัน เหลือ ${keys.day1.length} • 2วัน เหลือ ${keys.day2.length} • 3วัน เหลือ ${keys.day3.length}`;
-}
-
-function shopFooterText() {
-  return `2วัน เหลือ ${shopKeys.shopday2.length} • 3วัน เหลือ ${shopKeys.shopday3.length}`;
 }
 
 function parseKeysInput(input) {
   return input.split(/[\n,]+/).map(k => k.trim()).filter(Boolean);
 }
 
-function generateTransactionId() {
-  return `TXN${Date.now()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-}
-
-// ===== TrueMoney Webhook Server =====
-const app = express();
-app.use(express.json());
-
-app.post('/webhook/truemoney', async (req, res) => {
-  try {
-    const { phone, amount, ref, timestamp } = req.body;
-    console.log(`[TrueMoney] รับซอง: ${phone} จำนวน ${amount} บาท (ref: ${ref})`);
-
-    const txn = {
-      id: generateTransactionId(),
-      phone,
-      amount: parseFloat(amount),
-      ref,
-      timestamp: timestamp || Date.now(),
-      status: 'pending',
-    };
-
-    transactions.transactions.push(txn);
-    saveJSON(TRANSACTIONS_FILE, transactions);
-
-    try {
-      const owner = await client.users.fetch(config.ownerId);
-      await owner.send({
-        embeds: [
-          new EmbedBuilder()
-            .setTitle('💰 มีซองเข้ามา!')
-            .setDescription(
-              `**เบอร์:** ${phone}\n` +
-              `**จำนวน:** ${amount} บาท\n` +
-              `**Ref:** ${ref}\n` +
-              `**เวลา:** ${new Date(txn.timestamp).toLocaleString('th-TH')}`
-            )
-            .setColor(0x00D4AA)
-            .setTimestamp()
-        ]
-      });
-    } catch (e) {
-      console.log('ส่ง DM แจ้งเจ้าของไม่สำเรจ');
-    }
-
-    res.status(200).json({ success: true });
-  } catch (err) {
-    console.error('Webhook error:', err.message);
-    res.status(500).json({ success: false });
-  }
-});
-
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', transactions: transactions.transactions.length });
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🌐 Webhook server running on port ${PORT}`);
-});
-
-// ===== ลงทะเบียนคำสัง =====
+// ===== ลงทะเบียนคำสั่งอัตโนมัติ =====
 async function deployCommands() {
   const commands = [
     new SlashCommandBuilder()
@@ -197,18 +125,10 @@ async function deployCommands() {
       .toJSON(),
 
     new SlashCommandBuilder()
-      .setName('เลือกห้องขาย')
-      .setDescription('สร้างปุ่มขายคีย์ (2/3 วัน)')
-      .addStringOption(o => o.setName('หัวข้อ').setDescription('ชื่อหัวข้อ / ชื่อหน้าต่าง').setRequired(false).setMaxLength(100))
-      .addStringOption(o => o.setName('รายการ1').setDescription('ชื่อห้อง / รายการ').setRequired(true).setMaxLength(80))
-      .toJSON(),
-
-    new SlashCommandBuilder()
       .setName('เพิ่มคีย์')
-      .setDescription('เพิ่ม Key สุ่ม (แอดมินเท่านั้น)')
+      .setDescription('เพิ่ม Key (แอดมินเท่านั้น)')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-      .addStringOption(o => o.setName('ประเภท').setDescription('ระยะเวลาของ Key')
-        .setRequired(true)
+      .addStringOption(o => o.setName('ประเภท').setDescription('ระยะเวลาของ Key').setRequired(true)
         .addChoices(
           { name: '1 วัน', value: 'day1' },
           { name: '2 วัน', value: 'day2' },
@@ -218,21 +138,8 @@ async function deployCommands() {
       .toJSON(),
 
     new SlashCommandBuilder()
-      .setName('เพิ่มคีย์ขาย')
-      .setDescription('เพิ่ม Key ขาย (แอดมินเท่านั้น)')
-      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-      .addStringOption(o => o.setName('ประเภท').setDescription('ระยะเวลาของ Key')
-        .setRequired(true)
-        .addChoices(
-          { name: '2 วัน', value: 'shopday2' },
-          { name: '3 วัน', value: 'shopday3' },
-        ))
-      .addStringOption(o => o.setName('keys').setDescription('ใส่ Key คั่นด้วย , หรือขึ้นบรรทัดใหม่').setRequired(true))
-      .toJSON(),
-
-    new SlashCommandBuilder()
       .setName('ดูคีย์')
-      .setDescription('ดู Key ทั้งหมด (แอดมินเท่านั้น)')
+      .setDescription('ดู Key ที่เหลือ (แอดมินเท่านั้น)')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .toJSON(),
 
@@ -242,19 +149,11 @@ async function deployCommands() {
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .addStringOption(o => o.setName('ประเภท').setDescription('เลือกประเภทที่จะล้าง (ไม่เลือก = ล้างทั้งหมด)').setRequired(false)
         .addChoices(
-          { name: 'สุ่ม 1 วัน', value: 'day1' },
-          { name: 'สุ่ม 2 วัน', value: 'day2' },
-          { name: 'สุ่ม 3 วัน', value: 'day3' },
-          { name: 'ขาย 2 วัน', value: 'shopday2' },
-          { name: 'ขาย 3 วัน', value: 'shopday3' },
+          { name: '1 วัน', value: 'day1' },
+          { name: '2 วัน', value: 'day2' },
+          { name: '3 วัน', value: 'day3' },
           { name: 'ทั้งหมด', value: 'all' },
         ))
-      .toJSON(),
-
-    new SlashCommandBuilder()
-      .setName('รายการโอนเงิน')
-      .setDescription('ดูรายการซองที่ผ่านมา (แอดมินเท่านั้น)')
-      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .toJSON(),
   ];
 
@@ -262,24 +161,24 @@ async function deployCommands() {
   try {
     if (process.env.GUILD_ID) {
       await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commands });
-      console.log('✅ ลงทะเบียนคำสั่งในเซิร์ฟเวอร์สำเรจ');
+      console.log('✅ ลงทะเบียนคำสั่งในเซิร์ฟเวอร์สำเร็จ');
     } else {
       await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-      console.log('✅ ลงทะเบียนคำสั่ง Global สำเรจ');
+      console.log('✅ ลงทะเบียนคำสั่ง Global สำเร็จ');
     }
   } catch (err) {
-    console.error('ลงทะเบียนคำสั่งไม่สำเรจ:', err.message);
+    console.error('ลงทะเบียนคำสั่งไม่สำเร็จ:', err.message);
   }
 }
 
-// ===== สร้างแถวปุ่มสุ่ม =====
-function buildSpinRows(idSuffix) {
+// ===== สร้างแถวปุ่ม 3 ปุ่ม (1/2/3 วัน) =====
+function buildRows(idSuffix) {
   const row = new ActionRowBuilder();
-  for (const cat of SPIN_CATEGORIES) {
+  for (const cat of CATEGORIES) {
     row.addComponents(
       new ButtonBuilder()
         .setCustomId(`spin_${cat}_${idSuffix}`)
-        .setLabel(SPIN_LABEL[cat])
+        .setLabel(LABEL[cat])
         .setStyle(ButtonStyle.Primary)
         .setEmoji('🎡')
         .setDisabled(keys[cat].length === 0)
@@ -288,205 +187,167 @@ function buildSpinRows(idSuffix) {
   return [row];
 }
 
-// ===== สร้างแถวปุ่มขาย =====
-function buildShopRows(idSuffix) {
-  const row = new ActionRowBuilder();
-  for (const cat of SHOP_CATEGORIES) {
-    row.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`shop_${cat}_${idSuffix}`)
-        .setLabel(SHOP_LABEL[cat])
-        .setStyle(ButtonStyle.Success)
-        .setEmoji('💰')
-        .setDisabled(shopKeys[cat].length === 0)
-    );
-  }
-  return [row];
-}
-
-function categoryFromSpinId(customId) {
-  for (const cat of SPIN_CATEGORIES) {
+function categoryFromCustomId(customId) {
+  for (const cat of CATEGORIES) {
     if (customId.startsWith(`spin_${cat}_`)) return cat;
   }
   return null;
 }
 
-function categoryFromShopId(customId) {
-  for (const cat of SHOP_CATEGORIES) {
-    if (customId.startsWith(`shop_${cat}_`)) return cat;
-  }
-  return null;
-}
-
-// ===== อัปเดตแผงสุ่ม =====
+// ===== อัปเดตข้อความหลัก (แผงปุ่ม): footer จำนวน Key + ล็อกปุ่มที่หมด =====
 async function refreshPanel(message) {
   try {
     if (!message || !message.embeds || !message.embeds.length) return;
+
     const oldEmbed = message.embeds[0];
-    const newEmbed = EmbedBuilder.from(oldEmbed).setFooter({ text: spinFooterText() });
+    const newEmbed = EmbedBuilder.from(oldEmbed).setFooter({ text: footerText() });
+
     const newRows = message.components.map(row => {
       const newRow = new ActionRowBuilder();
       for (const comp of row.components) {
-        const cat = categoryFromSpinId(comp.customId);
+        const cat = categoryFromCustomId(comp.customId);
         const btn = ButtonBuilder.from(comp);
         if (cat) btn.setDisabled(keys[cat].length === 0);
         newRow.addComponents(btn);
       }
       return newRow;
     });
+
     await message.edit({ embeds: [newEmbed], components: newRows });
   } catch (e) {
-    console.error('อัปเดตแผงสุ่มไม่สำเรจ:', e.message);
+    console.error('อัปเดตแผงปุ่มไม่สำเร็จ:', e.message);
   }
 }
 
-// ===== อัปเดตแผงขาย =====
-async function refreshShopPanel(message) {
-  try {
-    if (!message || !message.embeds || !message.embeds.length) return;
-    const oldEmbed = message.embeds[0];
-    const newEmbed = EmbedBuilder.from(oldEmbed).setFooter({ text: shopFooterText() });
-    const newRows = message.components.map(row => {
-      const newRow = new ActionRowBuilder();
-      for (const comp of row.components) {
-        const cat = categoryFromShopId(comp.customId);
-        const btn = ButtonBuilder.from(comp);
-        if (cat) btn.setDisabled(shopKeys[cat].length === 0);
-        newRow.addComponents(btn);
-      }
-      return newRow;
-    });
-    await message.edit({ embeds: [newEmbed], components: newRows });
-  } catch (e) {
-    console.error('อัปเดตแผงขายไม่สำเรจ:', e.message);
-  }
-}
-
-// ===== รีเฟรชทุกแผง =====
+// ===== รีเฟรชหน้าต่างที่เคยสร้างไว้ "ทุกอัน" (เรียกทุกครั้งที่คีย์เปลี่ยน) =====
 async function refreshAllPanels() {
-  if (panels.length) {
-    const stillValid = [];
-    for (const p of panels) {
-      try {
-        const channel = await client.channels.fetch(p.channelId);
-        const message = await channel.messages.fetch(p.messageId);
-        await refreshPanel(message);
-        stillValid.push(p);
-      } catch (e) {}
+  if (!panels.length) return;
+  const stillValid = [];
+  for (const p of panels) {
+    try {
+      const channel = await client.channels.fetch(p.channelId);
+      const message = await channel.messages.fetch(p.messageId);
+      await refreshPanel(message);
+      stillValid.push(p);
+    } catch (e) {
+      // ข้อความ/ช่องถูกลบไปแล้ว → ตัดออกจากรายการ
     }
-    panels = stillValid;
-    saveJSON(PANELS_FILE, { panels });
   }
-
-  if (shopPanels.length) {
-    const stillValid = [];
-    for (const p of shopPanels) {
-      try {
-        const channel = await client.channels.fetch(p.channelId);
-        const message = await channel.messages.fetch(p.messageId);
-        await refreshShopPanel(message);
-        stillValid.push(p);
-      } catch (e) {}
-    }
-    shopPanels = stillValid;
-    saveJSON(SHOP_PANELS_FILE, { panels: shopPanels });
-  }
+  panels = stillValid;
+  savePanels(panels);
 }
 
-// ===== วงล้อสุ่ม =====
+// ===== วงล้อ (แอนิเมชันแบบรูเล็ต) =====
+const WHEEL_SEGMENTS = ['🟩 ได้', '🟥 ไม่ได้', '🟩 ได้', '🟥 ไม่ได้', '🟩 ได้', '🟥 ไม่ได้', '🟩 ได้', '🟥 ไม่ได้'];
+const WHEEL_LEN = WHEEL_SEGMENTS.length;
+// ดีเลย์แต่ละสเต็ป: เริ่มไวแล้วค่อยๆ ช้าลงเหมือนวงล้อกำลังจะหยุด
+const SPIN_DELAYS = [140, 140, 160, 180, 210, 250, 300, 360, 430, 510, 600, 700, 820];
+
+function renderWheelFrame(idx, isFinal) {
+  const prev = WHEEL_SEGMENTS[(idx - 1 + WHEEL_LEN) % WHEEL_LEN];
+  const cur = WHEEL_SEGMENTS[idx % WHEEL_LEN];
+  const next = WHEEL_SEGMENTS[(idx + 1) % WHEEL_LEN];
+  const pointer = isFinal ? '     🔽 หยุด! 🔽' : '        🔻';
+  return '```\n' +
+    `   ${prev}      ${next}\n` +
+    `${pointer}\n` +
+    `      ▶ ${cur} ◀\n` +
+    '```';
+}
+
 async function spinWheel(interaction, itemName, category) {
-  const frames = [
-    '🎡 ▶ ได้ ◀     ไม่ได้',
-    '🎡   ได้   ▶ ไม่ได้ ◀',
-    '🎡 ▶ ได้ ◀     ไม่ได้',
-    '🎡   ได้   ▶ ไม่ได้ ◀',
-    '🎡 ▶ ได้ ◀     ไม่ได้',
-  ];
+  const chancePercent = Math.round(WIN_CHANCE[category] * 100);
+  const isWin = Math.random() < WIN_CHANCE[category];
 
-  const tag = `${itemName} (${CHOICE_LABEL[category]})`;
+  // เลือกช่องปลายทางของวงล้อให้ตรงกับผลที่สุ่มได้ไว้ล่วงหน้า
+  const matchType = isWin ? 'ได้' : 'ไม่ได้';
+  const candidateIdx = WHEEL_SEGMENTS
+    .map((seg, i) => ({ seg, i }))
+    .filter(o => (o.seg.includes('ไม่ได้') ? 'ไม่ได้' : 'ได้') === matchType)
+    .map(o => o.i);
+  const finalIndex = candidateIdx[Math.floor(Math.random() * candidateIdx.length)];
 
-  await interaction.reply({
-    content: `${config.messages.spinning}\n**${tag}**\n\`\`\`\n${frames[0]}\n\`\`\``,
-    flags: MessageFlags.Ephemeral,
-  });
+  const totalSteps = SPIN_DELAYS.length;
+  const startOffset = finalIndex - (totalSteps - 1);
 
-  for (let i = 1; i < frames.length; i++) {
-    await new Promise(r => setTimeout(r, 350));
-    await interaction.editReply({
-      content: `${config.messages.spinning}\n**${tag}**\n\`\`\`\n${frames[i]}\n\`\`\``
-    });
+  const spinEmbed = (idx, isFinal) => new EmbedBuilder()
+    .setTitle(isFinal ? '🎯 วงล้อหยุดแล้ว!' : '🎡 กำลังหมุนวงล้อ...')
+    .setDescription(
+      `**${itemName}** • ระยะเวลา **${CHOICE_LABEL[category]}** (โอกาสได้ ${chancePercent}%)\n` +
+      renderWheelFrame(idx, isFinal)
+    )
+    .setColor(isFinal ? (isWin ? 0x57F287 : 0xED4245) : 0x5865F2);
+
+  const idxAt = (i) => (((startOffset + i) % WHEEL_LEN) + WHEEL_LEN) % WHEEL_LEN;
+
+  await interaction.reply({ embeds: [spinEmbed(idxAt(0), false)], flags: MessageFlags.Ephemeral });
+
+  for (let i = 1; i < totalSteps; i++) {
+    await new Promise(r => setTimeout(r, SPIN_DELAYS[i]));
+    const isLast = i === totalSteps - 1;
+    await interaction.editReply({ embeds: [spinEmbed(idxAt(i), isLast)] });
   }
 
-  const isWin = Math.random() < WIN_CHANCE[category];
-  let msg;
+  await new Promise(r => setTimeout(r, 500));
+
+  let resultEmbed;
 
   if (isWin) {
     if (keys[category].length === 0) {
-      msg = `😢 ขออภัย **Key ประเภท ${CHOICE_LABEL[category]} หมดแล้ว**`;
+      resultEmbed = new EmbedBuilder()
+        .setTitle('😔 พลาดไปนิดเดียว!')
+        .setDescription(`**${itemName}** (${CHOICE_LABEL[category]})\n\n😢 ขออภัย Key ประเภทนี้**หมดพอดี** ไม่สามารถออก Key ให้ได้ในตอนนี้`)
+        .setColor(0xFEE75C)
+        .setFooter({ text: `สุ่มใหม่ได้อีกครั้งใน ${COOLDOWN_MS / 60000} นาที` });
     } else {
+      // ได้ Key → ลบออกทันที (กันซ้ำ)
       const key = keys[category].splice(Math.floor(Math.random() * keys[category].length), 1)[0];
-      saveJSON(KEYS_FILE, keys);
+      saveKeys(keys);
+
+      let dmSent = true;
       try {
         await interaction.user.send({
           embeds: [
             new EmbedBuilder()
               .setTitle('🎉 คุณชนะ!')
-              .setDescription(`คุณสุ่มจาก **${tag}** แล้วได้ Key\n\n\`\`\`\n${key}\n\`\`\`\nกรุณาเก็บรักษาไว้นะครับ`)
+              .setDescription(`คุณสุ่มจาก **${itemName}** (${CHOICE_LABEL[category]}) แล้วได้ Key\n\n\`\`\`\n${key}\n\`\`\`\nกรุณาเก็บรักษาไว้ดีๆ นะครับ`)
               .setColor(0x57F287)
               .setTimestamp()
           ]
         });
-        msg = config.messages.win;
       } catch (err) {
-        msg = `🎉 **คุณชนะ!**\n(ส่ง DM ไม่สำเรจ เพราะคุณปิดรับข้อความจากบอท)\n\nนี่คือ Key ของคุณ:\n\`\`\`\n${key}\n\`\`\``;
+        dmSent = false;
       }
+
+      resultEmbed = new EmbedBuilder()
+        .setTitle('🎉 ยินดีด้วย! คุณถูกรางวัล')
+        .setDescription(
+          `**${itemName}** • **${CHOICE_LABEL[category]}**\n\n` +
+          (dmSent
+            ? '📩 บอทได้ส่ง Key ของคุณไปทาง DM แล้ว'
+            : `⚠️ ส่ง DM ไม่สำเร็จ (คุณปิดรับข้อความจากบอท) นี่คือ Key ของคุณ:\n\`\`\`\n${key}\n\`\`\``)
+        )
+        .setColor(0x57F287)
+        .setFooter({ text: `สุ่มใหม่ได้อีกครั้งใน ${COOLDOWN_MS / 60000} นาที` })
+        .setTimestamp();
     }
   } else {
-    msg = config.messages.lose;
+    resultEmbed = new EmbedBuilder()
+      .setTitle('😢 ไม่โชคดีในรอบนี้')
+      .setDescription(`**${itemName}** • **${CHOICE_LABEL[category]}**\n\nลองใหม่อีกครั้งได้นะ!`)
+      .setColor(0xED4245)
+      .setFooter({ text: `สุ่มใหม่ได้อีกครั้งใน ${COOLDOWN_MS / 60000} นาที` });
   }
 
-  await new Promise(r => setTimeout(r, 400));
-  await interaction.editReply({ content: `**${tag}**\n\n${msg}` });
+  await interaction.editReply({ embeds: [resultEmbed] });
+
+  // อัปเดตแผงปุ่มหลัก: footer + ล็อกปุ่มที่คีย์หมด
   await refreshPanel(interaction.message);
-}
-
-// ===== ขายคีย์ (Modal กรอกเบอร์ทรู + จำนวน) =====
-async function buyKey(interaction, itemName, category) {
-  const price = SHOP_PRICE[category];
-  const label = SHOP_CHOICE_LABEL[category];
-
-  const modal = new ModalBuilder()
-    .setCustomId(`buy_modal_${category}_${Date.now()}`)
-    .setTitle(`💰 ชำระเงิน — ${label}`);
-
-  const phoneInput = new TextInputBuilder()
-    .setCustomId('truemoney_phone')
-    .setLabel('เบอร์ทรูมันนี่ที่ส่งมา')
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder('เช่น 08xxxxxxxx')
-    .setRequired(true)
-    .setMaxLength(15)
-    .setMinLength(10);
-
-  const amountInput = new TextInputBuilder()
-    .setCustomId('amount')
-    .setLabel(`จำนวนเงินที่ส่ง (${price} บาท)`)
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder(`เช่น ${price}`)
-    .setRequired(true)
-    .setMaxLength(6)
-    .setMinLength(1);
-
-  const row1 = new ActionRowBuilder().addComponents(phoneInput);
-  const row2 = new ActionRowBuilder().addComponents(amountInput);
-  modal.addComponents(row1, row2);
-
-  await interaction.showModal(modal);
 }
 
 // ===== Ready =====
 client.once(Events.ClientReady, async (c) => {
-  console.log(`✅ ออนไลน์: ${c.user.tag} | Key: 1วัน=${keys.day1.length} 2วัน=${keys.day2.length} 3วัน=${keys.day3.length} | ขาย: 2วัน=${shopKeys.shopday2.length} 3วัน=${shopKeys.shopday3.length}`);
+  console.log(`✅ ออนไลน์: ${c.user.tag} | Key: 1วัน=${keys.day1.length} 2วัน=${keys.day2.length} 3วัน=${keys.day3.length}`);
 
   await deployCommands();
 
@@ -498,24 +359,23 @@ client.once(Events.ClientReady, async (c) => {
           .setTitle('🤖 บอทพร้อมใช้งานแล้ว')
           .setDescription(
             `**สถานะ:** ออนไลน์\n` +
-            `**Key คงเหลือ:** สุ่ม 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}\n` +
-            `**Key ขาย:** 2วัน ${shopKeys.shopday2.length} • 3วัน ${shopKeys.shopday3.length}\n` +
-            `**TrueMoney:** ${TRUE_PHONE}\n` +
-            `**Webhook:** http://your-server:${process.env.PORT || 3000}/webhook/truemoney\n\n` +
+            `**Key คงเหลือ:** 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}\n` +
+            `**คูลดาวน์:** ${COOLDOWN_MS / 60000} นาที/คน\n\n` +
             `**คำสั่งหลัก:**\n` +
-            `\`/เลือกห้อง\` → สร้างปุ่มสุ่ม\n` +
-            `\`/เลือกห้องขาย\` → สร้างปุ่มขาย\n` +
-            `\`/เพิ่มคีย์\` → เพิ่ม Key สุ่ม\n` +
-            `\`/เพิ่มคีย์ขาย\` → เพิ่ม Key ขาย\n` +
+            `\`/เลือกห้อง\` → สร้างปุ่มสุ่ม (1/2/3 วัน)\n` +
+            `\`/เพิ่มคีย์\` → เพิ่ม Key ตามประเภท\n` +
             `\`/ดูคีย์\` → ดู Key ที่เหลือ\n` +
-            `\`/รายการโอนเงิน\` → ดูรายการซอง`
+            `\`/ล้างคีย์\` → ล้าง Key\n\n` +
+            `**ทางลัด:** ส่ง DM ข้อความมาที่บอทได้เลย จะถูกเก็บเป็น Key อัตโนมัติ\n` +
+            `นำหน้าด้วย \`1:\`, \`2:\`, \`3:\` เพื่อระบุประเภทวัน (ไม่ใส่ = ถือเป็น 1 วัน)\n` +
+            `เช่น \`2:ABCD-1234-EFGH\``
           )
           .setColor(0x57F287)
           .setTimestamp()
       ]
     });
   } catch (e) {
-    console.log('ส่ง DM หาเจ้าของไม่สำเรจ');
+    console.log('ส่ง DM หาเจ้าของไม่สำเร็จ');
   }
 });
 
@@ -523,7 +383,7 @@ client.once(Events.ClientReady, async (c) => {
 client.on(Events.MessageCreate, async (message) => {
   try {
     if (message.author.bot) return;
-    if (message.guild) return;
+    if (message.guild) return; // เฉพาะ DM เท่านั้น
     if (message.author.id !== config.ownerId) return;
 
     const raw = message.content?.trim();
@@ -544,15 +404,15 @@ client.on(Events.MessageCreate, async (message) => {
     }
 
     keys[category].push(...newKeys);
-    saveJSON(KEYS_FILE, keys);
-    await refreshAllPanels();
+    saveKeys(keys);
+    await refreshAllPanels(); // ปลดล็อกปุ่ม/อัปเดตจำนวนในทุกหน้าต่างที่เคยสร้างไว้
 
     await message.reply(
-      `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเรจ **${newKeys.length}** อัน\n` +
+      `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเร็จ **${newKeys.length}** อัน\n` +
       `ตอนนี้เหลือ: 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}`
     );
   } catch (e) {
-    console.error('รับ DM key ไม่สำเรจ:', e.message);
+    console.error('รับ DM key ไม่สำเร็จ:', e.message);
   }
 });
 
@@ -568,7 +428,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const item = interaction.options.getString('รายการ1', true).trim();
 
         const idSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const rows = buildSpinRows(idSuffix);
+        const rows = buildRows(idSuffix);
 
         const embed = new EmbedBuilder()
           .setTitle(title)
@@ -577,45 +437,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
             `เลือกระยะเวลาที่ต้องการสุ่ม แล้วกดปุ่มเพื่อหมุนวงล้อ\n` +
             `สุ่มได้ **1 ครั้ง / ${COOLDOWN_MS / 60000} นาที** ต่อคน\n` +
             `ผลลัพธ์จะเห็นเฉพาะคุณเท่านั้น\n\n` +
-            `🔹 ${SPIN_LABEL.day1}\n🔹 ${SPIN_LABEL.day2}\n🔹 ${SPIN_LABEL.day3}`
+            `🔹 ${LABEL.day1}\n🔹 ${LABEL.day2}\n🔹 ${LABEL.day3}`
           )
           .setColor(0x5865F2)
-          .setFooter({ text: spinFooterText() })
+          .setFooter({ text: footerText() })
           .setTimestamp();
 
         await interaction.reply({ embeds: [embed], components: rows });
         const sentMessage = await interaction.fetchReply();
         panels.push({ channelId: sentMessage.channelId, messageId: sentMessage.id });
-        saveJSON(PANELS_FILE, { panels });
-        return;
-      }
-
-      // /เลือกห้องขาย
-      if (name === 'เลือกห้องขาย') {
-        const title = interaction.options.getString('หัวข้อ') || '💰 ซื้อ Key — ชำระเงินทรูมันนี่';
-        const item = interaction.options.getString('รายการ1', true).trim();
-
-        const idSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const rows = buildShopRows(idSuffix);
-
-        const embed = new EmbedBuilder()
-          .setTitle(title)
-          .setDescription(
-            `**${item}**\n\n` +
-            `เลือกระยะเวลาที่ต้องการ แล้วกดปุ่มเพื่อชำระเงิน\n` +
-            `กรอกเบอร์ทรูมันนี่ที่ส่งมา + จำนวนเงิน\n` +
-            `เจ้าของจะตรวจสอบและส่ง Key ทาง DM\n\n` +
-            `💰 ${SHOP_LABEL.shopday2}\n💰 ${SHOP_LABEL.shopday3}\n\n` +
-            `📲 ชำระได้ที่: **${TRUE_PHONE}** (TrueMoney Wallet)`
-          )
-          .setColor(0x57F287)
-          .setFooter({ text: shopFooterText() })
-          .setTimestamp();
-
-        await interaction.reply({ embeds: [embed], components: rows });
-        const sentMessage = await interaction.fetchReply();
-        shopPanels.push({ channelId: sentMessage.channelId, messageId: sentMessage.id });
-        saveJSON(SHOP_PANELS_FILE, { panels: shopPanels });
+        savePanels(panels);
         return;
       }
 
@@ -634,36 +465,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         keys[category].push(...newKeys);
-        saveJSON(KEYS_FILE, keys);
-        await refreshAllPanels();
+        saveKeys(keys);
+        await refreshAllPanels(); // ปลดล็อกปุ่ม/อัปเดตจำนวนในทุกหน้าต่างที่เคยสร้างไว้
 
         return interaction.reply({
-          content: `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเรจ **${newKeys.length}** อัน\n` +
+          content: `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเร็จ **${newKeys.length}** อัน\n` +
             `ตอนนี้เหลือ: 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}`,
-          flags: MessageFlags.Ephemeral
-        });
-      }
-
-      // /เพิ่มคีย์ขาย
-      if (name === 'เพิ่มคีย์ขาย') {
-        if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-          return interaction.reply({ content: '❌ คำสั่งนี้สำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
-        }
-
-        const category = interaction.options.getString('ประเภท', true);
-        const input = interaction.options.getString('keys', true);
-        const newKeys = parseKeysInput(input);
-
-        if (!newKeys.length) {
-          return interaction.reply({ content: '❌ ไม่พบ Key ที่จะเพิ่ม', flags: MessageFlags.Ephemeral });
-        }
-
-        shopKeys[category].push(...newKeys);
-        saveJSON(SHOP_KEYS_FILE, shopKeys);
-        await refreshAllPanels();
-
-        return interaction.reply({
-          content: `✅ เพิ่ม Key ขาย ประเภท **${SHOP_CHOICE_LABEL[category]}** สำเรจ **${newKeys.length}** อัน`,
           flags: MessageFlags.Ephemeral
         });
       }
@@ -674,7 +481,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return interaction.reply({ content: '❌ คำสั่งนี้สำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
         }
 
-        const section = (list, name) => {
+        const section = (cat) => {
+          const list = keys[cat];
           if (!list.length) return 'ไม่มี Key เหลือแล้ว';
           return list.slice(0, 10).map((k, i) => `${i + 1}. \`${k}\``).join('\n') +
             (list.length > 10 ? `\n...และอีก ${list.length - 10} อัน` : '');
@@ -683,11 +491,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({
           content:
             `🔑 **Key คงเหลือ**\n\n` +
-            `**สุ่ม — 1 วัน (${keys.day1.length} อัน)**\n${section(keys.day1, '1 วัน')}\n\n` +
-            `**สุ่ม — 2 วัน (${keys.day2.length} อัน)**\n${section(keys.day2, '2 วัน')}\n\n` +
-            `**สุ่ม — 3 วัน (${keys.day3.length} อัน)**\n${section(keys.day3, '3 วัน')}\n\n` +
-            `**ขาย — 2 วัน (${shopKeys.shopday2.length} อัน)**\n${section(shopKeys.shopday2, 'ขาย 2 วัน')}\n\n` +
-            `**ขาย — 3 วัน (${shopKeys.shopday3.length} อัน)**\n${section(shopKeys.shopday3, 'ขาย 3 วัน')}`,
+            `**1 วัน (${keys.day1.length} อัน)**\n${section('day1')}\n\n` +
+            `**2 วัน (${keys.day2.length} อัน)**\n${section('day2')}\n\n` +
+            `**3 วัน (${keys.day3.length} อัน)**\n${section('day3')}`,
           flags: MessageFlags.Ephemeral
         });
       }
@@ -702,50 +508,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         if (target === 'all') {
           keys = { day1: [], day2: [], day3: [] };
-          shopKeys = { shopday2: [], shopday3: [] };
-          saveJSON(KEYS_FILE, keys);
-          saveJSON(SHOP_KEYS_FILE, shopKeys);
-          await refreshAllPanels();
-          return interaction.reply({ content: '🗑️ ล้าง Key ทั้งหมดเรียบร้อยแล้ว', flags: MessageFlags.Ephemeral });
-        } else if (target.startsWith('shop')) {
-          shopKeys[target] = [];
-          saveJSON(SHOP_KEYS_FILE, shopKeys);
-          await refreshAllPanels();
-          return interaction.reply({ content: `🗑️ ล้าง Key ขาย ประเภท **${SHOP_CHOICE_LABEL[target]}** แล้ว`, flags: MessageFlags.Ephemeral });
+          saveKeys(keys);
+          await refreshAllPanels(); // ล็อกปุ่มทุกหน้าต่างทันทีเมื่อคีย์ถูกล้าง
+          return interaction.reply({ content: '🗑️ ล้าง Key ทั้งหมด (ทุกประเภท) เรียบร้อยแล้ว', flags: MessageFlags.Ephemeral });
         } else {
           keys[target] = [];
-          saveJSON(KEYS_FILE, keys);
+          saveKeys(keys);
           await refreshAllPanels();
-          return interaction.reply({ content: `🗑️ ล้าง Key สุ่ม ประเภท **${CHOICE_LABEL[target]}** แล้ว`, flags: MessageFlags.Ephemeral });
+          return interaction.reply({ content: `🗑️ ล้าง Key ประเภท **${CHOICE_LABEL[target]}** เรียบร้อยแล้ว`, flags: MessageFlags.Ephemeral });
         }
-      }
-
-      // /รายการโอนเงิน
-      if (name === 'รายการโอนเงิน') {
-        if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-          return interaction.reply({ content: '❌ คำสั่งนี้สำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
-        }
-
-        const recent = transactions.transactions.slice(-20).reverse();
-        if (!recent.length) {
-          return interaction.reply({ content: '📋 ยังไม่มีรายการโอนเงิน', flags: MessageFlags.Ephemeral });
-        }
-
-        const lines = recent.map(t => {
-          const time = new Date(t.timestamp).toLocaleString('th-TH');
-          return `• ${time} | ${t.phone} | ${t.amount}฿ | Ref: ${t.ref} | ${t.status}`;
-        }).join('\n');
-
-        return interaction.reply({
-          content: `📋 **20 รายการล่าสุด**\n\n${lines}`,
-          flags: MessageFlags.Ephemeral
-        });
       }
     }
 
-    // กดปุ่มสุ่ม
+    // กดปุ่ม
     if (interaction.isButton() && interaction.customId.startsWith('spin_')) {
-      const category = categoryFromSpinId(interaction.customId);
+      const category = categoryFromCustomId(interaction.customId);
       if (!category) return;
 
       const userId = interaction.user.id;
@@ -754,6 +531,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({ content: '⏳ กำลังหมุนอยู่ กรุณารอสักครู่...', flags: MessageFlags.Ephemeral });
       }
 
+      // เช็คคูลดาวน์ 1 ชั่วโมง/คน
       const now = Date.now();
       const lastSpin = cooldowns[userId] || 0;
       const elapsed = now - lastSpin;
@@ -766,13 +544,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
 
+      // เช็คคีย์หมด (ล็อกไม่ให้สุ่ม) ก่อนเริ่มหมุน
       if (keys[category].length === 0) {
-        await refreshPanel(interaction.message);
+        await refreshPanel(interaction.message); // sync ปุ่มให้ล็อกทันทีเผื่อยังไม่ได้อัปเดต
         return interaction.reply({ content: `😢 ขออภัย **Key ประเภท ${CHOICE_LABEL[category]} หมดแล้ว**`, flags: MessageFlags.Ephemeral });
       }
 
+      // ล็อกคูลดาวน์ทันทีก่อนหมุน กันกดรัว/สแปม
       cooldowns[userId] = now;
-      saveJSON(COOLDOWN_FILE, cooldowns);
+      saveCooldowns(cooldowns);
       spinningNow.add(userId);
 
       try {
@@ -781,77 +561,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } finally {
         spinningNow.delete(userId);
       }
-    }
-
-    // กดปุ่มขาย
-    if (interaction.isButton() && interaction.customId.startsWith('shop_')) {
-      const category = categoryFromShopId(interaction.customId);
-      if (!category) return;
-
-      if (shopKeys[category].length === 0) {
-        await refreshShopPanel(interaction.message);
-        return interaction.reply({ content: `😢 ขออภัย **Key ประเภท ${SHOP_CHOICE_LABEL[category]} หมดแล้ว**`, flags: MessageFlags.Ephemeral });
-      }
-
-      const itemName = interaction.message.embeds[0]?.description?.split('\n')[0]?.replace(/\*\*/g, '') || 'Key';
-      await buyKey(interaction, itemName, category);
-    }
-
-    // Modal submit (กรอกเบอร์ทรู + จำนวน)
-    if (interaction.isModalSubmit() && interaction.customId.startsWith('buy_modal_')) {
-      const category = interaction.customId.split('_')[2];
-      const phone = interaction.fields.getTextInputValue('truemoney_phone');
-      const amount = interaction.fields.getTextInputValue('amount');
-      const label = SHOP_CHOICE_LABEL[category];
-      const price = SHOP_PRICE[category];
-
-      const order = {
-        id: generateTransactionId(),
-        userId: interaction.user.id,
-        userTag: interaction.user.tag,
-        category,
-        phone,
-        amount: parseFloat(amount),
-        price,
-        timestamp: Date.now(),
-        status: 'pending',
-      };
-
-      transactions.transactions.push(order);
-      saveJSON(TRANSACTIONS_FILE, transactions);
-
-      try {
-        const owner = await client.users.fetch(config.ownerId);
-        await owner.send({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle('🛒 มีคำสั่งซื้อ Key!')
-              .setDescription(
-                `**ผู้ส่ง:** ${interaction.user.tag} (${interaction.user.id})\n` +
-                `**ประเภท:** ${label}\n` +
-                `**เบอร์ทรูที่ส่งมา:** ${phone}\n` +
-                `**จำนวนเงินที่ระบุ:** ${amount} บาท\n` +
-                `**ราคาที่ต้องการ:** ${price} บาท\n\n` +
-                `กรุณาตรวจสอบการโอนเงิน แล้วพิมพ์ส่ง Key ทาง DM ให้ผู้ใช้ได้เลย`
-              )
-              .setColor(0xFFD700)
-              .setTimestamp()
-          ]
-        });
-      } catch (e) {
-        console.log('ส่ง DM แจ้งเจ้าของไม่สำเรจ');
-      }
-
-      await interaction.reply({
-        content:
-          `✅ รับคำสั่งซื้อแล้ว!\n\n` +
-          `**ประเภท:** ${label}\n` +
-          `**เบอร์ทรูที่คุณส่งมา:** ${phone}\n` +
-          `**จำนวน:** ${amount} บาท\n\n` +
-          `กรุณารอเจ้าของตรวจสอบการโอนเงิน\n` +
-          `เมื่อตรวจสอบแล้วเจ้าของจะส่ง Key ทาง DM ให้ครับ 🙏`,
-        flags: MessageFlags.Ephemeral
-      });
     }
 
   } catch (err) {
