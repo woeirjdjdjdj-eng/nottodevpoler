@@ -307,15 +307,29 @@ async function spinWheel(interaction, itemName, category) {
 
       let dmSent = true;
       try {
+        // ข้อความที่ 1: คีย์ล้วนๆ กดค้างคัดลอกง่าย
+        await interaction.user.send({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('🔑 Key ของคุณ')
+              .setDescription(
+                `\`\`\`\n${key}\n\`\`\`\n` +
+                `👆 กดค้างที่คีย์ด้านบนแล้วเลือก "คัดลอก / Copy"`
+              )
+              .setColor(0x57F287)
+          ]
+        });
+
+        // ข้อความที่ 2: รายละเอียดแยกต่างหาก
         await interaction.user.send({
           embeds: [
             new EmbedBuilder()
               .setTitle('🎉 คุณชนะ!')
               .setDescription(
-                `คุณสุ่มจาก **${itemName}** (${CHOICE_LABEL[category]}) แล้วได้ Key ของคุณ\n\n` +
-                `\`\`\`\n${key}\n\`\`\`\n` +
-                `👆 **กดค้างที่คีย์ด้านบนแล้วเลือก "คัดลอก / Copy"**\n\n` +
-                `กรุณาเก็บรักษาไว้ดีๆ นะครับ`
+                `**รางวัล:** ${itemName}\n` +
+                `**ระยะเวลา:** ${CHOICE_LABEL[category]}\n` +
+                `**โอกาสที่สุ่มได้:** ${Math.round(WIN_CHANCE[category] * 100)}%\n\n` +
+                `กรุณาเก็บรักษา Key ไว้ดีๆ นะครับ`
               )
               .setColor(0x57F287)
               .setTimestamp()
@@ -330,12 +344,30 @@ async function spinWheel(interaction, itemName, category) {
         .setDescription(
           `**${itemName}** • **${CHOICE_LABEL[category]}**\n\n` +
           (dmSent
-            ? '📩 บอทได้ส่ง Key ของคุณไปทาง DM แล้ว'
-            : `⚠️ ส่ง DM ไม่สำเร็จ (คุณปิดรับข้อความจากบอท) นี่คือ Key ของคุณ:\n\`\`\`\n${key}\n\`\`\`\n👆 กดค้างที่คีย์ด้านบนแล้วเลือก "คัดลอก / Copy"`)
+            ? '📩 บอทได้ส่ง Key ของคุณไปทาง DM แล้ว (แยกเป็น 2 ข้อความ: คีย์ และรายละเอียด)'
+            : '⚠️ ส่ง DM ไม่สำเร็จ (คุณปิดรับข้อความจากบอท) — ดูคีย์ของคุณในข้อความถัดไป')
         )
         .setColor(0x57F287)
         .setFooter({ text: `สุ่มใหม่ได้อีกครั้งใน ${COOLDOWN_MS / 60000} นาที` })
         .setTimestamp();
+
+      await interaction.editReply({ embeds: [resultEmbed] });
+
+      if (!dmSent) {
+        // แยกส่งคีย์เป็นข้อความเดี่ยวๆ (ephemeral) กดคัดลอกง่าย
+        await interaction.followUp({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('🔑 Key ของคุณ')
+              .setDescription(`\`\`\`\n${key}\n\`\`\`\n👆 กดค้างที่คีย์ด้านบนแล้วเลือก "คัดลอก / Copy"`)
+              .setColor(0x57F287)
+          ],
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+      await refreshPanel(interaction.message);
+      return;
     }
   } else {
     resultEmbed = new EmbedBuilder()
