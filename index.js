@@ -14,176 +14,93 @@ const {
   PermissionFlagsBits,
   REST,
   Routes,
-  SlashCommandBuilder,
-  ChannelType
+  SlashCommandBuilder
 } = require('discord.js');
 
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
 
 const config = require('./config');
-
-// =====================================================
-// TRUE MONEY
-// =====================================================
 
 const {
   TmnVoucherClient
 } = require('@prakrit_m/tmn-voucher');
 
 // =====================================================
-// CONFIG CHECK
-// =====================================================
-
-if (!config || typeof config !== 'object') {
-
-  console.error(
-    '❌ ไม่พบ config.js'
-  );
-
-  process.exit(1);
-
-}
-
-if (
-  !config.token ||
-  config.token === 'ใส่_BOT_TOKEN_ตรงนี้'
-) {
-
-  console.error(
-    '❌ กรุณาใส่ Discord Bot Token ใน config.js'
-  );
-
-  process.exit(1);
-
-}
-
-if (
-  !config.clientId ||
-  config.clientId === 'ใส่_CLIENT_ID_ตรงนี้'
-) {
-
-  console.error(
-    '❌ กรุณาใส่ Client ID ใน config.js'
-  );
-
-  process.exit(1);
-
-}
-
-if (
-  !config.trueMoneyPhone ||
-  config.trueMoneyPhone === 'เบอร์รับเงิน_TRUE_MONEY'
-) {
-
-  console.error(
-    '❌ กรุณาใส่ TrueMoney Phone ใน config.js'
-  );
-
-  process.exit(1);
-
-}
-
-if (!config.ownerId) {
-
-  console.error(
-    '❌ กรุณาใส่ ownerId ใน config.js'
-  );
-
-  process.exit(1);
-
-}
-
-// =====================================================
 // CLIENT
 // =====================================================
 
 const client = new Client({
-
   intents: [
-
     GatewayIntentBits.Guilds,
-
     GatewayIntentBits.GuildMessages,
-
     GatewayIntentBits.DirectMessages,
-
     GatewayIntentBits.MessageContent
-
   ],
-
-  partials: [
-    Partials.Channel
-  ]
-
+  partials: [Partials.Channel]
 });
 
 // =====================================================
 // CONFIG
 // =====================================================
 
-// ฟรีได้วันละครั้ง
-const FREE_COOLDOWN_MS =
-  24 * 60 * 60 * 1000;
+const COOLDOWN_MS = 60 * 60 * 1000;
+
+// เปลี่ยนเป็น 2 / 3 / 7 วัน
+const CATEGORIES = [
+  'day2',
+  'day3',
+  'day7'
+];
 
 // =====================================================
-// PRODUCTS
+// โอกาสสุ่ม
+// =====================================================
+
+const WIN_CHANCE = {
+  day2: 0.25,
+  day3: 0.10,
+  day7: 0.05
+};
+
+const LABEL = {
+  day2: '2 วัน (25%)',
+  day3: '3 วัน (10%)',
+  day7: '7 วัน (5%)'
+};
+
+const CHOICE_LABEL = {
+  day2: '2 วัน',
+  day3: '3 วัน',
+  day7: '7 วัน'
+};
+
+// =====================================================
+// สินค้าสำหรับ "ซื้อ"
 // =====================================================
 
 const PRODUCTS = {
 
-  buy2: {
-
+  day2: {
     days: 2,
-
     price: 10,
-
     label: '2 วัน',
-
     emoji: '🔵'
-
   },
 
-  buy3: {
-
+  day3: {
     days: 3,
-
     price: 15,
-
     label: '3 วัน',
-
     emoji: '🟣'
-
   },
 
-  buy7: {
-
+  day7: {
     days: 7,
-
     price: 35,
-
     label: '7 วัน',
-
     emoji: '🟡'
-
-  }
-
-};
-
-// =====================================================
-// FREE PRODUCTS
-// =====================================================
-
-const FREE_PRODUCTS = {
-
-  free1: {
-
-    days: 1,
-
-    label: 'ฟรี 1 วัน',
-
-    emoji: '🎁'
-
   }
 
 };
@@ -193,157 +110,95 @@ const FREE_PRODUCTS = {
 // =====================================================
 
 const DATA_DIR =
-  path.join(
-    __dirname,
-    'data'
-  );
+  path.join(__dirname, 'data');
 
 const KEYS_FILE =
-  path.join(
-    DATA_DIR,
-    'keys.json'
-  );
+  path.join(DATA_DIR, 'keys.json');
 
-const FREE_COOLDOWN_FILE =
-  path.join(
-    DATA_DIR,
-    'free_cooldowns.json'
-  );
+const COOLDOWN_FILE =
+  path.join(DATA_DIR, 'cooldowns.json');
 
 const PANELS_FILE =
-  path.join(
-    DATA_DIR,
-    'panels.json'
-  );
+  path.join(DATA_DIR, 'panels.json');
 
-// =====================================================
-// CREATE DATA DIRECTORY
-// =====================================================
+if (!fs.existsSync(DATA_DIR)) {
 
-if (
-  !fs.existsSync(DATA_DIR)
-) {
-
-  fs.mkdirSync(
-    DATA_DIR,
-    {
-      recursive: true
-    }
-  );
+  fs.mkdirSync(DATA_DIR, {
+    recursive: true
+  });
 
 }
 
 // =====================================================
-// DEFAULT KEYS
-// =====================================================
-
-const DEFAULT_KEYS = {
-
-  free1: [],
-
-  buy2: [],
-
-  buy3: [],
-
-  buy7: []
-
-};
-
-// =====================================================
-// LOAD KEYS
+// LOAD / SAVE KEYS
 // =====================================================
 
 function loadKeys() {
 
   try {
 
-    if (
-      !fs.existsSync(
-        KEYS_FILE
-      )
-    ) {
+    if (fs.existsSync(KEYS_FILE)) {
 
-      return {
-        ...DEFAULT_KEYS
-      };
-
-    }
-
-    const data =
-      JSON.parse(
+      const data = JSON.parse(
         fs.readFileSync(
           KEYS_FILE,
           'utf8'
         )
       );
 
-    return {
+      return {
 
-      free1:
-        Array.isArray(data.free1)
-          ? data.free1
+        day2: Array.isArray(data.day2)
+          ? data.day2
           : [],
 
-      buy2:
-        Array.isArray(data.buy2)
-          ? data.buy2
+        day3: Array.isArray(data.day3)
+          ? data.day3
           : [],
 
-      buy3:
-        Array.isArray(data.buy3)
-          ? data.buy3
-          : [],
-
-      buy7:
-        Array.isArray(data.buy7)
-          ? data.buy7
+        day7: Array.isArray(data.day7)
+          ? data.day7
           : []
 
-    };
+      };
+
+    }
 
   } catch (error) {
 
     console.error(
-      '❌ โหลด Key ไม่สำเร็จ:',
+      'โหลด Key ไม่สำเร็จ:',
       error.message
     );
 
-    return {
-      ...DEFAULT_KEYS
-    };
-
   }
+
+  return {
+    day2: [],
+    day3: [],
+    day7: []
+  };
 
 }
 
-// =====================================================
-// SAVE KEYS
-// =====================================================
-
-function saveKeys(
-  data = keys
-) {
+function saveKeys(keysData = keys) {
 
   try {
 
     fs.writeFileSync(
-
       KEYS_FILE,
-
       JSON.stringify(
-        data,
+        keysData,
         null,
         2
       ),
-
       'utf8'
-
     );
 
   } catch (error) {
 
     console.error(
-      '❌ บันทึก Key ไม่สำเร็จ:',
+      'บันทึก Key ไม่สำเร็จ:',
       error.message
     );
 
@@ -351,85 +206,61 @@ function saveKeys(
 
 }
 
-let keys =
-  loadKeys();
+let keys = loadKeys();
 
 // =====================================================
-// LOAD FREE COOLDOWNS
+// COOLDOWN
 // =====================================================
 
-function loadFreeCooldowns() {
+function loadCooldowns() {
 
   try {
 
     if (
-      !fs.existsSync(
-        FREE_COOLDOWN_FILE
+      fs.existsSync(
+        COOLDOWN_FILE
       )
     ) {
 
-      return {};
+      const data =
+        JSON.parse(
+          fs.readFileSync(
+            COOLDOWN_FILE,
+            'utf8'
+          )
+        );
+
+      return data &&
+        typeof data === 'object'
+        ? data
+        : {};
 
     }
 
-    const data =
-      JSON.parse(
-        fs.readFileSync(
-          FREE_COOLDOWN_FILE,
-          'utf8'
-        )
-      );
-
-    if (
-      data &&
-      typeof data === 'object'
-    ) {
-
-      return data;
-
-    }
-
-  } catch (error) {
-
-    console.error(
-      '❌ โหลด Free Cooldown ไม่สำเร็จ:',
-      error.message
-    );
-
-  }
+  } catch {}
 
   return {};
 
 }
 
-// =====================================================
-// SAVE FREE COOLDOWNS
-// =====================================================
-
-function saveFreeCooldowns(
-  data
-) {
+function saveCooldowns(data) {
 
   try {
 
     fs.writeFileSync(
-
-      FREE_COOLDOWN_FILE,
-
+      COOLDOWN_FILE,
       JSON.stringify(
         data,
         null,
         2
       ),
-
       'utf8'
-
     );
 
   } catch (error) {
 
     console.error(
-      '❌ บันทึก Free Cooldown ไม่สำเร็จ:',
+      'บันทึกคูลดาวน์ไม่สำเร็จ:',
       error.message
     );
 
@@ -437,11 +268,11 @@ function saveFreeCooldowns(
 
 }
 
-let freeCooldowns =
-  loadFreeCooldowns();
+let cooldowns =
+  loadCooldowns();
 
 // =====================================================
-// LOAD PANELS
+// PANELS
 // =====================================================
 
 function loadPanels() {
@@ -449,61 +280,37 @@ function loadPanels() {
   try {
 
     if (
-      !fs.existsSync(
+      fs.existsSync(
         PANELS_FILE
       )
     ) {
 
-      return [];
+      const data =
+        JSON.parse(
+          fs.readFileSync(
+            PANELS_FILE,
+            'utf8'
+          )
+        );
+
+      return Array.isArray(data.panels)
+        ? data.panels
+        : [];
 
     }
 
-    const data =
-      JSON.parse(
-        fs.readFileSync(
-          PANELS_FILE,
-          'utf8'
-        )
-      );
-
-    if (
-      data &&
-      Array.isArray(
-        data.panels
-      )
-    ) {
-
-      return data.panels;
-
-    }
-
-  } catch (error) {
-
-    console.error(
-      '❌ โหลด Panel ไม่สำเร็จ:',
-      error.message
-    );
-
-  }
+  } catch {}
 
   return [];
 
 }
 
-// =====================================================
-// SAVE PANELS
-// =====================================================
-
-function savePanels(
-  data
-) {
+function savePanels(data) {
 
   try {
 
     fs.writeFileSync(
-
       PANELS_FILE,
-
       JSON.stringify(
         {
           panels: data
@@ -511,15 +318,13 @@ function savePanels(
         null,
         2
       ),
-
       'utf8'
-
     );
 
   } catch (error) {
 
     console.error(
-      '❌ บันทึก Panel ไม่สำเร็จ:',
+      'บันทึก Panel ไม่สำเร็จ:',
       error.message
     );
 
@@ -534,7 +339,7 @@ let panels =
 // LOCK
 // =====================================================
 
-const freeNow =
+const spinningNow =
   new Set();
 
 const buyingNow =
@@ -544,96 +349,47 @@ const buyingNow =
 // UTIL
 // =====================================================
 
-function formatRemaining(
-  ms
-) {
+function formatRemaining(ms) {
 
-  const totalSeconds =
+  const totalMin =
     Math.ceil(
-      ms / 1000
+      ms / 60000
     );
 
-  const hours =
+  const h =
     Math.floor(
-      totalSeconds / 3600
+      totalMin / 60
     );
 
-  const minutes =
-    Math.floor(
-      (totalSeconds % 3600) / 60
-    );
+  const m =
+    totalMin % 60;
 
-  const seconds =
-    totalSeconds % 60;
+  if (h > 0) {
 
-  if (
-    hours > 0
-  ) {
-
-    return (
-      `${hours} ชั่วโมง ` +
-      `${minutes} นาที`
-    );
+    return `${h} ชั่วโมง ${m} นาที`;
 
   }
 
-  if (
-    minutes > 0
-  ) {
-
-    return (
-      `${minutes} นาที`
-    );
-
-  }
-
-  return (
-    `${seconds} วินาที`
-  );
+  return `${m} นาที`;
 
 }
-
-// =====================================================
-// FOOTER
-// =====================================================
 
 function footerText() {
 
   return (
-
-    `🎁 ฟรี: ${keys.free1.length} • ` +
-
-    `🔵 2วัน: ${keys.buy2.length} • ` +
-
-    `🟣 3วัน: ${keys.buy3.length} • ` +
-
-    `🟡 7วัน: ${keys.buy7.length}`
-
+    `2วัน เหลือ ${keys.day2.length} • ` +
+    `3วัน เหลือ ${keys.day3.length} • ` +
+    `7วัน เหลือ ${keys.day7.length}`
   );
 
 }
 
-// =====================================================
-// PARSE KEYS
-// =====================================================
-
-function parseKeysInput(
-  input
-) {
+function parseKeysInput(input) {
 
   return input
-
-    .split(
-      /[\n,]+/
-    )
-
-    .map(
-      x => x.trim()
-    )
-
-    .filter(
-      Boolean
-    );
+    .split(/[\n,]+/)
+    .map(k => k.trim())
+    .filter(Boolean);
 
 }
 
@@ -641,12 +397,18 @@ function parseKeysInput(
 // TRUE MONEY
 // =====================================================
 
+if (!process.env.TRUEMONEY_PHONE) {
+
+  console.error(
+    '❌ ไม่พบ TRUEMONEY_PHONE ใน .env'
+  );
+
+  process.exit(1);
+
+}
+
 const tmn =
   new TmnVoucherClient();
-
-// =====================================================
-// RECEIVE TRUE MONEY
-// =====================================================
 
 async function receiveTrueMoney(
   voucher,
@@ -662,43 +424,27 @@ async function receiveTrueMoney(
 
     const result =
       await tmn.redeemVoucher(
-
-        config.trueMoneyPhone,
-
+        process.env.TRUEMONEY_PHONE,
         voucher,
-
         {
-          amount:
-            expectedSatang
+          amount: expectedSatang
         }
-
       );
 
-    if (
-      !result ||
-      !result.success
-    ) {
+    if (!result.success) {
 
       return {
-
         success: false,
-
-        code:
-          result?.code ||
-          'UNKNOWN',
-
+        code: result.code,
         message:
-          result?.message ||
+          result.message ||
           'รับเงินไม่สำเร็จ'
-
       };
 
     }
 
     const receivedSatang =
-      Number(
-        result.data?.amount
-      );
+      Number(result.data.amount);
 
     const receivedBaht =
       receivedSatang / 100;
@@ -709,49 +455,32 @@ async function receiveTrueMoney(
     ) {
 
       return {
-
         success: false,
-
-        code:
-          'AMOUNT_MISMATCH',
-
+        code: 'AMOUNT_MISMATCH',
         message:
-          `ยอดเงินไม่ตรง ` +
-          `ได้รับ ${receivedBaht} บาท`
-
+          `ยอดเงินไม่ตรง ได้รับ ${receivedBaht} บาท`
       };
 
     }
 
     return {
-
       success: true,
-
-      amount:
-        receivedBaht,
-
-      raw:
-        result.data?.raw
-
+      amount: receivedBaht,
+      raw: result.data.raw
     };
 
   } catch (error) {
 
     console.error(
-      '❌ TrueMoney Error:',
+      'TrueMoney Error:',
       error
     );
 
     return {
-
       success: false,
-
-      code:
-        'ERROR',
-
+      code: 'ERROR',
       message:
         'เกิดข้อผิดพลาดในการรับเงิน'
-
     };
 
   }
@@ -766,60 +495,28 @@ function buildShopEmbed(
   title = '🛒 ร้านขาย Key'
 ) {
 
-  return (
-
-    new EmbedBuilder()
-
-      .setTitle(
-        title
-      )
-
-      .setDescription(
-
-        [
-
-          '🎁 **รับฟรี 1 วัน**',
-
-          'กดปุ่มรับฟรีได้วันละ 1 ครั้ง',
-
-          '',
-
-          '💰 **ราคาสินค้า**',
-
-          '🔵 2 วัน — **10 บาท**',
-
-          '🟣 3 วัน — **15 บาท**',
-
-          '🟡 7 วัน — **35 บาท**',
-
-          '',
-
-          '📩 หลังซื้อสำเร็จ',
-
-          'Code จะถูกส่งเข้า DM',
-
-          '',
-
-          '📚 ดูวิธีใช้',
-
-          '`/ช่วยเหลือ`'
-
-        ].join('\n')
-
-      )
-
-      .setColor(
-        0x5865F2
-      )
-
-      .setFooter({
-
-        text:
-          'กรุณาเปิดรับ DM จากสมาชิกเซิร์ฟเวอร์'
-
-      })
-
-  );
+  return new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(
+      [
+        'เลือกแพ็กเกจที่ต้องการซื้อ',
+        '',
+        '🔵 **2 วัน — 10 บาท**',
+        '🟣 **3 วัน — 15 บาท**',
+        '🟡 **7 วัน — 35 บาท**',
+        '',
+        'หลังเลือกสินค้า',
+        'ระบบจะเปิดหน้าต่างให้ใส่ลิงก์ซอง TrueMoney',
+        '',
+        'เมื่อรับเงินสำเร็จ',
+        'Key จะถูกส่งทาง DM'
+      ].join('\n')
+    )
+    .setColor(0x5865F2)
+    .setFooter({
+      text:
+        'กรุณาเปิดรับ DM จากสมาชิกเซิร์ฟเวอร์'
+    });
 
 }
 
@@ -829,104 +526,127 @@ function buildShopEmbed(
 
 function buildShopButtons() {
 
+  return [
+
+    new ActionRowBuilder()
+      .addComponents(
+
+        new ButtonBuilder()
+          .setCustomId(
+            'buy_day2'
+          )
+          .setLabel(
+            '2 วัน • 10 บาท'
+          )
+          .setEmoji('🔵')
+          .setStyle(
+            ButtonStyle.Primary
+          )
+          .setDisabled(
+            keys.day2.length === 0
+          ),
+
+        new ButtonBuilder()
+          .setCustomId(
+            'buy_day3'
+          )
+          .setLabel(
+            '3 วัน • 15 บาท'
+          )
+          .setEmoji('🟣')
+          .setStyle(
+            ButtonStyle.Secondary
+          )
+          .setDisabled(
+            keys.day3.length === 0
+          ),
+
+        new ButtonBuilder()
+          .setCustomId(
+            'buy_day7'
+          )
+          .setLabel(
+            '7 วัน • 35 บาท'
+          )
+          .setEmoji('🟡')
+          .setStyle(
+            ButtonStyle.Success
+          )
+          .setDisabled(
+            keys.day7.length === 0
+          )
+
+      )
+
+  ];
+
+}
+
+// =====================================================
+// WHEEL BUTTONS
+// =====================================================
+
+function buildWheelRows(
+  idSuffix
+) {
+
   const row =
     new ActionRowBuilder();
 
-  row.addComponents(
+  for (
+    const category of CATEGORIES
+  ) {
 
-    new ButtonBuilder()
+    row.addComponents(
 
-      .setCustomId(
-        'free_1'
+      new ButtonBuilder()
+        .setCustomId(
+          `spin_${category}_${idSuffix}`
+        )
+        .setLabel(
+          LABEL[category]
+        )
+        .setStyle(
+          ButtonStyle.Primary
+        )
+        .setEmoji('🎡')
+        .setDisabled(
+          keys[category].length === 0
+        )
+
+    );
+
+  }
+
+  return [row];
+
+}
+
+// =====================================================
+// CATEGORY FROM ID
+// =====================================================
+
+function categoryFromCustomId(
+  customId
+) {
+
+  for (
+    const cat of CATEGORIES
+  ) {
+
+    if (
+      customId.startsWith(
+        `spin_${cat}_`
       )
+    ) {
 
-      .setLabel(
-        'ฟรี 1 วัน'
-      )
+      return cat;
 
-      .setEmoji(
-        '🎁'
-      )
+    }
 
-      .setStyle(
-        ButtonStyle.Success
-      )
+  }
 
-      .setDisabled(
-        keys.free1.length === 0
-      ),
-
-    new ButtonBuilder()
-
-      .setCustomId(
-        'buy_buy2'
-      )
-
-      .setLabel(
-        '2 วัน • 10 บาท'
-      )
-
-      .setEmoji(
-        '🔵'
-      )
-
-      .setStyle(
-        ButtonStyle.Primary
-      )
-
-      .setDisabled(
-        keys.buy2.length === 0
-      ),
-
-    new ButtonBuilder()
-
-      .setCustomId(
-        'buy_buy3'
-      )
-
-      .setLabel(
-        '3 วัน • 15 บาท'
-      )
-
-      .setEmoji(
-        '🟣'
-      )
-
-      .setStyle(
-        ButtonStyle.Primary
-      )
-
-      .setDisabled(
-        keys.buy3.length === 0
-      ),
-
-    new ButtonBuilder()
-
-      .setCustomId(
-        'buy_buy7'
-      )
-
-      .setLabel(
-        '7 วัน • 35 บาท'
-      )
-
-      .setEmoji(
-        '🟡'
-      )
-
-      .setStyle(
-        ButtonStyle.Primary
-      )
-
-      .setDisabled(
-        keys.buy7.length === 0
-      )
-
-  );
-
-  return [
-    row
-  ];
+  return null;
 
 }
 
@@ -934,9 +654,7 @@ function buildShopButtons() {
 // TAKE KEY
 // =====================================================
 
-function takeKey(
-  category
-) {
+function takeKey(category) {
 
   if (
     !keys[category] ||
@@ -950,9 +668,7 @@ function takeKey(
   const key =
     keys[category].shift();
 
-  saveKeys(
-    keys
-  );
+  saveKeys(keys);
 
   return key;
 
@@ -969,14 +685,7 @@ async function refreshPanel(
   try {
 
     if (
-      !message
-    ) {
-
-      return;
-
-    }
-
-    if (
+      !message ||
       !message.embeds ||
       !message.embeds.length
     ) {
@@ -990,16 +699,9 @@ async function refreshPanel(
 
     const newEmbed =
       EmbedBuilder
-
-        .from(
-          oldEmbed
-        )
-
+        .from(oldEmbed)
         .setFooter({
-
-          text:
-            footerText()
-
+          text: footerText()
         });
 
     const newRows =
@@ -1018,46 +720,40 @@ async function refreshPanel(
                 comp
               );
 
-            const id =
-              comp.customId;
+            const cat =
+              categoryFromCustomId(
+                comp.customId
+              );
 
-            if (
-              id === 'free_1'
-            ) {
+            if (cat) {
 
               button.setDisabled(
-                keys.free1.length === 0
+                keys[cat].length === 0
               );
 
             }
 
             if (
-              id === 'buy_buy2'
+              comp.customId.startsWith(
+                'buy_'
+              )
             ) {
 
-              button.setDisabled(
-                keys.buy2.length === 0
-              );
+              const buyCat =
+                comp.customId.replace(
+                  'buy_',
+                  ''
+                );
 
-            }
+              if (
+                keys[buyCat]
+              ) {
 
-            if (
-              id === 'buy_buy3'
-            ) {
+                button.setDisabled(
+                  keys[buyCat].length === 0
+                );
 
-              button.setDisabled(
-                keys.buy3.length === 0
-              );
-
-            }
-
-            if (
-              id === 'buy_buy7'
-            ) {
-
-              button.setDisabled(
-                keys.buy7.length === 0
-              );
+              }
 
             }
 
@@ -1073,20 +769,14 @@ async function refreshPanel(
       );
 
     await message.edit({
-
-      embeds: [
-        newEmbed
-      ],
-
-      components:
-        newRows
-
+      embeds: [newEmbed],
+      components: newRows
     });
 
   } catch (error) {
 
     console.error(
-      '❌ Refresh Panel Error:',
+      'Refresh Panel Error:',
       error.message
     );
 
@@ -1100,15 +790,11 @@ async function refreshPanel(
 
 async function refreshAllPanels() {
 
-  if (
-    !panels.length
-  ) {
-
+  if (!panels.length) {
     return;
-
   }
 
-  const validPanels = [];
+  const valid = [];
 
   for (
     const panel of panels
@@ -1116,265 +802,349 @@ async function refreshAllPanels() {
 
     try {
 
-      if (
-        !panel.channelId ||
-        !panel.messageId
-      ) {
-
-        continue;
-
-      }
-
       const channel =
         await client.channels.fetch(
           panel.channelId
         );
-
-      if (
-        !channel ||
-        !channel.isTextBased()
-      ) {
-
-        continue;
-
-      }
 
       const message =
         await channel.messages.fetch(
           panel.messageId
         );
 
-      if (
-        !message
-      ) {
-
-        continue;
-
-      }
-
       await refreshPanel(
         message
       );
 
-      validPanels.push(
-        panel
-      );
+      valid.push(panel);
 
-    } catch (error) {
-
-      console.log(
-        `⚠️ ข้าม Panel ${panel.messageId}`
-      );
-
-    }
+    } catch {}
 
   }
 
-  panels =
-    validPanels;
+  panels = valid;
 
-  savePanels(
-    panels
-  );
+  savePanels(panels);
 
 }
 
 // =====================================================
-// CLAIM FREE
+// WHEEL
 // =====================================================
 
-async function claimFree(
-  interaction
+const WHEEL_SEGMENTS = [
+  '🟩 ได้',
+  '🟥 ไม่ได้',
+  '🟩 ได้',
+  '🟥 ไม่ได้',
+  '🟩 ได้',
+  '🟥 ไม่ได้',
+  '🟩 ได้',
+  '🟥 ไม่ได้'
+];
+
+const WHEEL_LEN =
+  WHEEL_SEGMENTS.length;
+
+const SPIN_DELAYS = [
+  140,
+  140,
+  160,
+  180,
+  210,
+  250,
+  300,
+  360,
+  430,
+  510,
+  600,
+  700,
+  820
+];
+
+function renderWheelFrame(
+  idx,
+  isFinal
 ) {
 
-  const userId =
-    interaction.user.id;
+  const prev =
+    WHEEL_SEGMENTS[
+      (idx - 1 + WHEEL_LEN) %
+      WHEEL_LEN
+    ];
 
-  if (
-    freeNow.has(
-      userId
-    )
-  ) {
+  const cur =
+    WHEEL_SEGMENTS[
+      idx % WHEEL_LEN
+    ];
 
-    return interaction.reply({
+  const next =
+    WHEEL_SEGMENTS[
+      (idx + 1) % WHEEL_LEN
+    ];
 
-      content:
-        '⏳ กำลังดำเนินการรับ Key อยู่',
+  const pointer =
+    isFinal
+      ? '     🔽 หยุด! 🔽'
+      : '        🔻';
 
-      flags:
-        MessageFlags.Ephemeral
-
-    });
-
-  }
-
-  const now =
-    Date.now();
-
-  const last =
-    freeCooldowns[userId] || 0;
-
-  const elapsed =
-    now - last;
-
-  if (
-    elapsed <
-    FREE_COOLDOWN_MS
-  ) {
-
-    return interaction.reply({
-
-      content:
-
-        `⏰ คุณรับฟรีไปแล้ว\n` +
-
-        `กรุณารออีก **${
-          formatRemaining(
-            FREE_COOLDOWN_MS -
-            elapsed
-          )
-        }**`,
-
-      flags:
-        MessageFlags.Ephemeral
-
-    });
-
-  }
-
-  if (
-    keys.free1.length === 0
-  ) {
-
-    await refreshPanel(
-      interaction.message
-    );
-
-    return interaction.reply({
-
-      content:
-        '😢 Key ฟรีหมดแล้ว',
-
-      flags:
-        MessageFlags.Ephemeral
-
-    });
-
-  }
-
-  freeNow.add(
-    userId
+  return (
+    '```\n' +
+    `   ${prev}      ${next}\n` +
+    `${pointer}\n` +
+    `      ▶ ${cur} ◀\n` +
+    '```'
   );
 
-  try {
+}
+
+async function spinWheel(
+  interaction,
+  itemName,
+  category
+) {
+
+  const chancePercent =
+    Math.round(
+      WIN_CHANCE[category] * 100
+    );
+
+  const isWin =
+    Math.random() <
+    WIN_CHANCE[category];
+
+  const matchType =
+    isWin
+      ? 'ได้'
+      : 'ไม่ได้';
+
+  const candidates =
+    WHEEL_SEGMENTS
+      .map((seg, i) => ({
+        seg,
+        i
+      }))
+      .filter(
+        o =>
+          (
+            o.seg.includes('ไม่ได้')
+              ? 'ไม่ได้'
+              : 'ได้'
+          ) === matchType
+      )
+      .map(
+        o => o.i
+      );
+
+  const finalIndex =
+    candidates[
+      Math.floor(
+        Math.random() *
+        candidates.length
+      )
+    ];
+
+  const totalSteps =
+    SPIN_DELAYS.length;
+
+  const startOffset =
+    finalIndex -
+    (totalSteps - 1);
+
+  const idxAt =
+    i =>
+      (
+        (
+          startOffset + i
+        ) % WHEEL_LEN +
+        WHEEL_LEN
+      ) % WHEEL_LEN;
+
+  const spinEmbed =
+    (idx, isFinal) =>
+      new EmbedBuilder()
+        .setTitle(
+          isFinal
+            ? '🎯 วงล้อหยุดแล้ว!'
+            : '🎡 กำลังหมุนวงล้อ...'
+        )
+        .setDescription(
+          `**${itemName}** • ` +
+          `ระยะเวลา **${CHOICE_LABEL[category]}**\n\n` +
+          `โอกาสได้ ${chancePercent}%\n\n` +
+          renderWheelFrame(
+            idx,
+            isFinal
+          )
+        )
+        .setColor(
+          isFinal
+            ? (
+              isWin
+                ? 0x57F287
+                : 0xED4245
+            )
+            : 0x5865F2
+        );
+
+  await interaction.reply({
+    embeds: [
+      spinEmbed(
+        idxAt(0),
+        false
+      )
+    ],
+    flags:
+      MessageFlags.Ephemeral
+  });
+
+  for (
+    let i = 1;
+    i < totalSteps;
+    i++
+  ) {
+
+    await new Promise(
+      resolve =>
+        setTimeout(
+          resolve,
+          SPIN_DELAYS[i]
+        )
+    );
+
+    await interaction.editReply({
+      embeds: [
+        spinEmbed(
+          idxAt(i),
+          i === totalSteps - 1
+        )
+      ]
+    });
+
+  }
+
+  await new Promise(
+    resolve =>
+      setTimeout(
+        resolve,
+        500
+      )
+  );
+
+  if (isWin) {
 
     const key =
-      takeKey(
-        'free1'
-      );
+      takeKey(category);
 
     if (!key) {
 
-      return interaction.reply({
-
-        content:
-          '❌ ไม่สามารถรับ Key ได้',
-
-        flags:
-          MessageFlags.Ephemeral
-
+      await interaction.editReply({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle(
+              '😔 Key หมดพอดี'
+            )
+            .setDescription(
+              `**${itemName}**\n\n` +
+              `ไม่มี Key ${CHOICE_LABEL[category]} เหลือ`
+            )
+            .setColor(
+              0xFEE75C
+            )
+        ]
       });
 
+      await refreshPanel(
+        interaction.message
+      );
+
+      return;
+
     }
+
+    let dmSuccess = true;
 
     try {
 
       await interaction.user.send({
+        content: key
+      });
 
+      await interaction.user.send({
         embeds: [
-
           new EmbedBuilder()
-
             .setTitle(
-              '🎁 Key ฟรี 1 วัน'
+              '🎉 คุณชนะ!'
             )
-
             .setDescription(
-
-              `🔑 **Code ของคุณ:**\n\n` +
-
-              `\`${key}\`\n\n` +
-
-              'กรุณาเก็บ Code ไว้ให้ดี'
-
+              `**รางวัล:** ${itemName}\n` +
+              `**ระยะเวลา:** ${CHOICE_LABEL[category]}\n` +
+              `**โอกาส:** ${chancePercent}%\n\n` +
+              'กรุณาเก็บ Key ไว้ให้ดี'
             )
-
             .setColor(
               0x57F287
             )
-
             .setTimestamp()
-
         ]
-
       });
 
-    } catch (error) {
+    } catch {
 
-      keys.free1.unshift(
-        key
-      );
-
-      saveKeys(
-        keys
-      );
-
-      return interaction.reply({
-
-        content:
-
-          '⚠️ ไม่สามารถส่ง DM ได้\n' +
-
-          'กรุณาเปิดรับข้อความส่วนตัวจากสมาชิกเซิร์ฟเวอร์',
-
-        flags:
-          MessageFlags.Ephemeral
-
-      });
+      dmSuccess = false;
 
     }
 
-    freeCooldowns[userId] =
-      now;
-
-    saveFreeCooldowns(
-      freeCooldowns
-    );
-
-    await interaction.reply({
-
-      content:
-
-        '✅ รับ Key ฟรีสำเร็จ!\n' +
-
-        '📩 Code ถูกส่งเข้า DM แล้ว',
-
-      flags:
-        MessageFlags.Ephemeral
-
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle(
+            '🎉 ยินดีด้วย!'
+          )
+          .setDescription(
+            dmSuccess
+              ? `คุณได้รับ **${CHOICE_LABEL[category]}**\n\n📩 Key ถูกส่ง DM แล้ว`
+              : '⚠️ ไม่สามารถส่ง DM ได้'
+          )
+          .setColor(
+            0x57F287
+          )
+          .setTimestamp()
+      ]
     });
 
-    await refreshPanel(
-      interaction.message
-    );
+    if (!dmSuccess) {
 
-  } finally {
+      keys[category].unshift(
+        key
+      );
 
-    freeNow.delete(
-      userId
-    );
+      saveKeys(keys);
+
+    }
+
+  } else {
+
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle(
+            '😢 ไม่โชคดีในรอบนี้'
+          )
+          .setDescription(
+            `**${itemName}** • ${CHOICE_LABEL[category]}`
+          )
+          .setColor(
+            0xED4245
+          )
+      ]
+    });
 
   }
+
+  await refreshPanel(
+    interaction.message
+  );
 
 }
 
@@ -1386,453 +1156,172 @@ async function deployCommands() {
 
   const commands = [
 
-    // =================================================
-    // เลือกห้อง
-    // =================================================
-
     new SlashCommandBuilder()
-
-      .setName(
-        'เลือกห้อง'
-      )
-
+      .setName('เลือกห้อง')
       .setDescription(
-        'สร้างหน้าร้าน Key ในห้องนี้'
+        'สร้างหน้าต่างร้าน/สุ่ม'
       )
-
       .addStringOption(
-        option =>
-          option
-
-            .setName(
-              'title'
-            )
-
+        o =>
+          o
+            .setName('หัวข้อ')
             .setDescription(
-              'หัวข้อร้าน'
+              'ชื่อหน้าต่าง'
             )
-
             .setRequired(false)
-
-            .setMaxLength(
-              100
-            )
+            .setMaxLength(100)
       )
-
       .addStringOption(
-        option =>
-          option
-
-            .setName(
-              'item'
-            )
-
+        o =>
+          o
+            .setName('รายการ1')
             .setDescription(
-              'ชื่อสินค้า / ชื่อร้าน'
+              'ชื่อรายการ'
             )
-
             .setRequired(true)
-
-            .setMaxLength(
-              80
-            )
+            .setMaxLength(80)
       )
-
-      .setDefaultMemberPermissions(
-        PermissionFlagsBits.Administrator
-      )
-
       .toJSON(),
 
-    // =================================================
-    // เพิ่มคีย์
-    // =================================================
-
     new SlashCommandBuilder()
-
-      .setName(
-        'เพิ่มคีย์'
-      )
-
+      .setName('เพิ่มคีย์')
       .setDescription(
-        'เพิ่ม Key เข้าในคลัง'
+        'เพิ่ม Key'
       )
-
       .setDefaultMemberPermissions(
         PermissionFlagsBits.Administrator
       )
-
       .addStringOption(
-        option =>
-          option
-
-            .setName(
-              'ประเภท'
-            )
-
+        o =>
+          o
+            .setName('ประเภท')
             .setDescription(
               'ประเภท Key'
             )
-
             .setRequired(true)
-
             .addChoices(
-
               {
-                name:
-                  'ฟรี 1 วัน',
-
-                value:
-                  'free1'
+                name: '2 วัน',
+                value: 'day2'
               },
-
               {
-                name:
-                  'ขาย 2 วัน',
-
-                value:
-                  'buy2'
+                name: '3 วัน',
+                value: 'day3'
               },
-
               {
-                name:
-                  'ขาย 3 วัน',
-
-                value:
-                  'buy3'
-              },
-
-              {
-                name:
-                  'ขาย 7 วัน',
-
-                value:
-                  'buy7'
+                name: '7 วัน',
+                value: 'day7'
               }
-
             )
       )
-
       .addStringOption(
-        option =>
-          option
-
-            .setName(
-              'keys'
-            )
-
+        o =>
+          o
+            .setName('keys')
             .setDescription(
-              'ใส่หลาย Key คั่นด้วย , หรือขึ้นบรรทัดใหม่'
+              'Key คั่นด้วย , หรือขึ้นบรรทัดใหม่'
             )
-
             .setRequired(true)
-
-            .setMaxLength(
-              4000
-            )
       )
-
       .toJSON(),
 
-    // =================================================
-    // ดูคีย์
-    // =================================================
-
     new SlashCommandBuilder()
-
-      .setName(
-        'ดูคีย์'
-      )
-
+      .setName('ดูคีย์')
       .setDescription(
-        'ดูจำนวน Key ที่เหลือ'
+        'ดู Key'
       )
-
       .setDefaultMemberPermissions(
         PermissionFlagsBits.Administrator
       )
-
       .toJSON(),
 
-    // =================================================
-    // ล้างคีย์
-    // =================================================
-
     new SlashCommandBuilder()
-
-      .setName(
-        'ล้างคีย์'
-      )
-
+      .setName('ล้างคีย์')
       .setDescription(
-        'ล้าง Key ในคลัง'
+        'ล้าง Key'
       )
-
       .setDefaultMemberPermissions(
         PermissionFlagsBits.Administrator
       )
-
       .addStringOption(
-        option =>
-          option
-
-            .setName(
-              'ประเภท'
-            )
-
+        o =>
+          o
+            .setName('ประเภท')
             .setDescription(
               'ประเภทที่จะล้าง'
             )
-
-            .setRequired(true)
-
+            .setRequired(false)
             .addChoices(
-
               {
-                name:
-                  'ฟรี 1 วัน',
-
-                value:
-                  'free1'
+                name: '2 วัน',
+                value: 'day2'
               },
-
               {
-                name:
-                  '2 วัน',
-
-                value:
-                  'buy2'
+                name: '3 วัน',
+                value: 'day3'
               },
-
               {
-                name:
-                  '3 วัน',
-
-                value:
-                  'buy3'
+                name: '7 วัน',
+                value: 'day7'
               },
-
               {
-                name:
-                  '7 วัน',
-
-                value:
-                  'buy7'
-              },
-
-              {
-                name:
-                  'ทั้งหมด',
-
-                value:
-                  'all'
+                name: 'ทั้งหมด',
+                value: 'all'
               }
-
             )
       )
-
-      .toJSON(),
-
-    // =================================================
-    // ช่วยเหลือ
-    // =================================================
-
-    new SlashCommandBuilder()
-
-      .setName(
-        'ช่วยเหลือ'
-      )
-
-      .setDescription(
-        'ดูวิธีใช้งานบอท'
-      )
-
       .toJSON()
 
   ];
 
   const rest =
     new REST({
-      version:
-        '10'
+      version: '10'
     }).setToken(
-      config.token
+      process.env.TOKEN
     );
 
   try {
 
     if (
-      config.guildId
+      process.env.GUILD_ID
     ) {
 
-      console.log(
-        `🔄 กำลัง Deploy Commands ไป Guild: ${config.guildId}`
-      );
-
       await rest.put(
-
         Routes.applicationGuildCommands(
-
-          config.clientId,
-
-          config.guildId
-
+          process.env.CLIENT_ID,
+          process.env.GUILD_ID
         ),
-
         {
-          body:
-            commands
+          body: commands
         }
-
-      );
-
-      console.log(
-        '✅ Guild Commands Deploy สำเร็จ'
       );
 
     } else {
 
-      console.log(
-        '🔄 กำลัง Deploy Global Commands...'
-      );
-
       await rest.put(
-
         Routes.applicationCommands(
-          config.clientId
+          process.env.CLIENT_ID
         ),
-
         {
-          body:
-            commands
+          body: commands
         }
-
-      );
-
-      console.log(
-        '✅ Global Commands Deploy สำเร็จ'
       );
 
     }
 
+    console.log(
+      '✅ ลงทะเบียน Commands สำเร็จ'
+    );
+
   } catch (error) {
 
     console.error(
-      '❌ Deploy Commands Error:'
-    );
-
-    console.error(
-      error
+      '❌ Deploy Commands Error:',
+      error.message
     );
 
   }
-
-}
-
-// =====================================================
-// HELP EMBED
-// =====================================================
-
-function buildHelpEmbed() {
-
-  return new EmbedBuilder()
-
-    .setTitle(
-      '📚 วิธีใช้งานบอท'
-    )
-
-    .setColor(
-      0x5865F2
-    )
-
-    .setDescription(
-
-      [
-
-        '## 🛒 สำหรับลูกค้า',
-
-        '',
-
-        '🎁 **รับฟรี 1 วัน**',
-
-        'กดปุ่ม `🎁 ฟรี 1 วัน`',
-
-        'รับได้วันละครั้ง',
-
-        '',
-
-        '💰 **ซื้อ Key**',
-
-        '🔵 2 วัน — 10 บาท',
-
-        '🟣 3 วัน — 15 บาท',
-
-        '🟡 7 วัน — 35 บาท',
-
-        '',
-
-        'กดสินค้าที่ต้องการ',
-
-        '→ ใส่ลิงก์ซอง TrueMoney',
-
-        '→ ระบบตรวจสอบยอด',
-
-        '→ Code ส่งเข้า DM',
-
-        '',
-
-        '## 🔐 สำหรับแอดมิน',
-
-        '',
-
-        '`/เลือกห้อง`',
-
-        'สร้างหน้าร้านในห้องที่ใช้คำสั่ง',
-
-        '',
-
-        '`/เพิ่มคีย์`',
-
-        'เพิ่ม Key เข้าในคลัง',
-
-        '',
-
-        '`/ดูคีย์`',
-
-        'ดูจำนวน Key',
-
-        '',
-
-        '`/ล้างคีย์`',
-
-        'ล้าง Key',
-
-        '',
-
-        '### เพิ่ม Key ผ่าน DM เจ้าของ',
-
-        '`free:1 CODE`',
-
-        '`buy:2 CODE`',
-
-        '`buy:3 CODE`',
-
-        '`buy:7 CODE`',
-
-        '',
-
-        'สามารถใส่หลาย Code คนละบรรทัดได้'
-
-      ].join('\n')
-
-    )
-
-    .setFooter({
-
-      text:
-        'ระบบร้าน Key'
-
-    });
 
 }
 
@@ -1841,50 +1330,26 @@ function buildHelpEmbed() {
 // =====================================================
 
 client.once(
-
   Events.ClientReady,
-
-  async readyClient => {
+  async c => {
 
     console.log(
-      '========================================'
+      `✅ ออนไลน์: ${c.user.tag}`
     );
 
     console.log(
-      `✅ ออนไลน์: ${readyClient.user.tag}`
+      `📦 2 วัน: ${keys.day2.length}`
     );
 
     console.log(
-      `🎁 Free 1 วัน: ${keys.free1.length}`
+      `📦 3 วัน: ${keys.day3.length}`
     );
 
     console.log(
-      `🔵 2 วัน: ${keys.buy2.length}`
-    );
-
-    console.log(
-      `🟣 3 วัน: ${keys.buy3.length}`
-    );
-
-    console.log(
-      `🟡 7 วัน: ${keys.buy7.length}`
-    );
-
-    console.log(
-      `📦 Panels: ${panels.length}`
-    );
-
-    console.log(
-      '========================================'
+      `📦 7 วัน: ${keys.day7.length}`
     );
 
     await deployCommands();
-
-    await refreshAllPanels();
-
-    // =================================================
-    // แจ้งเจ้าของ
-    // =================================================
 
     try {
 
@@ -1894,52 +1359,24 @@ client.once(
         );
 
       await owner.send({
-
         embeds: [
-
           new EmbedBuilder()
-
             .setTitle(
               '🤖 บอทพร้อมใช้งาน'
             )
-
             .setDescription(
-
-              `🎁 ฟรี 1 วัน: ${keys.free1.length}\n` +
-
-              `🔵 2 วัน: ${keys.buy2.length}\n` +
-
-              `🟣 3 วัน: ${keys.buy3.length}\n` +
-
-              `🟡 7 วัน: ${keys.buy7.length}\n\n` +
-
-              `💰 ราคา\n` +
-
-              `2 วัน = 10 บาท\n` +
-
-              `3 วัน = 15 บาท\n` +
-
-              `7 วัน = 35 บาท`
-
+              `2 วัน: ${keys.day2.length}\n` +
+              `3 วัน: ${keys.day3.length}\n` +
+              `7 วัน: ${keys.day7.length}\n\n` +
+              `ซื้อ: 2 วัน 10 บาท / 3 วัน 15 บาท / 7 วัน 35 บาท`
             )
-
             .setColor(
               0x57F287
             )
-
-            .setTimestamp()
-
         ]
-
       });
 
-    } catch (error) {
-
-      console.log(
-        '⚠️ ส่ง DM เจ้าของไม่ได้'
-      );
-
-    }
+    } catch {}
 
   }
 
@@ -1950,35 +1387,39 @@ client.once(
 // =====================================================
 
 client.on(
-
   Events.MessageCreate,
-
   async message => {
 
     try {
 
-      if (
-        message.author.bot
-      ) {
-
+      if (message.author.bot) {
         return;
-
       }
 
       const raw =
         message.content?.trim();
 
       if (!raw) {
-
         return;
-
       }
 
       const isDM =
         !message.guild;
 
       // =================================================
-      // DM OWNER
+      // DM เจ้าของ → เพิ่ม Key
+      //
+      // ใช้:
+      //
+      // ชื้อ2: KEY
+      // ชื้อ3: KEY
+      // ชื้อ7: KEY
+      //
+      // หลาย Key:
+      //
+      // ชื้อ2: KEY-001
+      // KEY-002
+      // KEY-003
       // =================================================
 
       if (isDM) {
@@ -1989,177 +1430,127 @@ client.on(
         ) {
 
           return;
-
         }
-
-        /*
-          ใช้:
-
-          free:1 CODE
-
-          buy:2 CODE
-          buy:3 CODE
-          buy:7 CODE
-
-          หลาย Key:
-
-          buy:2 CODE-001
-          CODE-002
-          CODE-003
-        */
 
         const match =
           raw.match(
-
-            /^(free|buy)\s*:\s*(1|2|3|7)\s+(.+)$/is
-
+            /^ชื้อ\s*([237])\s*:\s*(.+)$/is
           );
 
         if (!match) {
-
-          await message.reply(
-
-            [
-
-              '❌ รูปแบบไม่ถูกต้อง',
-
-              '',
-
-              'ตัวอย่าง:',
-
-              '`free:1 CODE`',
-
-              '`buy:2 CODE`',
-
-              '`buy:3 CODE`',
-
-              '`buy:7 CODE`',
-
-              '',
-
-              'หลาย Code:',
-
-              '`buy:2 CODE-001`',
-
-              '`CODE-002`',
-
-              '`CODE-003`'
-
-            ].join('\n')
-
-          );
-
           return;
-
         }
 
-        const type =
-          match[1].toLowerCase();
-
-        const number =
-          match[2];
-
-        const codeText =
-          match[3].trim();
-
-        let category;
-
-        if (
-          type === 'free'
-        ) {
-
-          if (
-            number !== '1'
-          ) {
-
-            await message.reply(
-              '❌ Free รองรับเฉพาะ `free:1`'
-            );
-
-            return;
-
-          }
-
-          category =
-            'free1';
-
-        } else {
-
-          category =
-            `buy${number}`;
-
-        }
+        const category =
+          `day${match[1]}`;
 
         const newKeys =
-          codeText
-
-            .split(
-              /\r?\n/
-            )
-
+          match[2]
+            .split(/\r?\n/)
             .map(
               x => x.trim()
             )
+            .filter(Boolean);
 
-            .filter(
-              Boolean
-            );
-
-        if (
-          !newKeys.length
-        ) {
+        if (!newKeys.length) {
 
           await message.reply(
-            '❌ ไม่พบ Code'
+            '❌ ไม่พบ Key'
           );
 
           return;
-
         }
 
         keys[category].push(
           ...newKeys
         );
 
-        saveKeys(
-          keys
-        );
+        saveKeys(keys);
 
         await refreshAllPanels();
 
         await message.reply(
-
-          [
-
-            '✅ เพิ่ม Code สำเร็จ',
-
-            '',
-
-            `📦 ประเภท: **${category}**`,
-
-            `🔑 เพิ่ม: **${newKeys.length} Code**`,
-
-            `📊 คงเหลือ: **${keys[category].length}**`
-
-          ].join('\n')
-
+          `✅ เพิ่ม Key สำเร็จ\n\n` +
+          `ประเภท: **${CHOICE_LABEL[category]}**\n` +
+          `เพิ่ม: **${newKeys.length}** Key\n` +
+          `คงเหลือ: **${keys[category].length}**`
         );
 
         return;
-
       }
 
       // =================================================
-      // SERVER
+      // Server → รองรับเพิ่ม Key แบบเดิมสำหรับ Admin
+      //
+      // 2: KEY
+      // 3: KEY
+      // 7: KEY
       // =================================================
 
-      // ข้อความธรรมดาใน Server ไม่ทำอะไร
-      return;
+      if (
+        !message.member?.permissions?.has(
+          PermissionFlagsBits.Administrator
+        )
+      ) {
+
+        return;
+      }
+
+      const prefixMatch =
+        raw.match(
+          /^([237])\s*(?:วัน)?\s*[:\-]\s*(.+)$/s
+        );
+
+      if (!prefixMatch) {
+        return;
+      }
+
+      const category =
+        `day${prefixMatch[1]}`;
+
+      const newKeys =
+        prefixMatch[2]
+          .split(/\r?\n/)
+          .map(
+            x => x.trim()
+          )
+          .filter(Boolean);
+
+      if (!newKeys.length) {
+        return;
+      }
+
+      keys[category].push(
+        ...newKeys
+      );
+
+      saveKeys(keys);
+
+      await refreshAllPanels();
+
+      const confirm =
+        await message.reply(
+          `✅ เพิ่ม Key ${CHOICE_LABEL[category]} ` +
+          `จำนวน ${newKeys.length} อัน`
+        );
+
+      setTimeout(
+        () => {
+
+          message.delete()
+            .catch(() => {});
+
+          confirm.delete()
+            .catch(() => {});
+
+        },
+        5000
+      );
 
     } catch (error) {
 
       console.error(
-        '❌ Message Error:',
+        'Message Error:',
         error
       );
 
@@ -2174,15 +1565,13 @@ client.on(
 // =====================================================
 
 client.on(
-
   Events.InteractionCreate,
-
   async interaction => {
 
     try {
 
       // =================================================
-      // CHAT INPUT COMMAND
+      // SLASH COMMAND
       // =================================================
 
       if (
@@ -2193,27 +1582,6 @@ client.on(
           interaction.commandName;
 
         // =================================================
-        // /ช่วยเหลือ
-        // =================================================
-
-        if (
-          name === 'ช่วยเหลือ'
-        ) {
-
-          return interaction.reply({
-
-            embeds: [
-              buildHelpEmbed()
-            ],
-
-            flags:
-              MessageFlags.Ephemeral
-
-          });
-
-        }
-
-        // =================================================
         // /เลือกห้อง
         // =================================================
 
@@ -2221,262 +1589,83 @@ client.on(
           name === 'เลือกห้อง'
         ) {
 
-          // ต้องอยู่ใน Server
-          if (
-            !interaction.guild
-          ) {
-
-            return interaction.reply({
-
-              content:
-                '❌ คำสั่งนี้ใช้ใน Server เท่านั้น',
-
-              flags:
-                MessageFlags.Ephemeral
-
-            });
-
-          }
-
-          // ตรวจ Admin
-          if (
-            !interaction.memberPermissions?.has(
-              PermissionFlagsBits.Administrator
-            )
-          ) {
-
-            return interaction.reply({
-
-              content:
-                '❌ คุณต้องเป็น Administrator เพื่อสร้างหน้าร้าน',
-
-              flags:
-                MessageFlags.Ephemeral
-
-            });
-
-          }
-
-          // =================================================
-          // CHECK CHANNEL
-          // =================================================
-
-          const channel =
-            interaction.channel;
-
-          if (
-            !channel ||
-            !channel.isTextBased()
-          ) {
-
-            return interaction.reply({
-
-              content:
-                '❌ ไม่สามารถสร้างหน้าร้านในห้องนี้ได้',
-
-              flags:
-                MessageFlags.Ephemeral
-
-            });
-
-          }
-
-          // =================================================
-          // CHECK BOT PERMISSION
-          // =================================================
-
-          const me =
-            interaction.guild.members.me;
-
-          if (
-            !me
-          ) {
-
-            return interaction.reply({
-
-              content:
-                '❌ ไม่พบข้อมูลสิทธิ์ของบอท',
-
-              flags:
-                MessageFlags.Ephemeral
-
-            });
-
-          }
-
-          const permissions =
-            channel.permissionsFor(
-              me
-            );
-
-          if (
-            !permissions?.has(
-              PermissionFlagsBits.ViewChannel
-            )
-          ) {
-
-            return interaction.reply({
-
-              content:
-                '❌ บอทไม่มีสิทธิ์ View Channel',
-
-              flags:
-                MessageFlags.Ephemeral
-
-            });
-
-          }
-
-          if (
-            !permissions?.has(
-              PermissionFlagsBits.SendMessages
-            )
-          ) {
-
-            return interaction.reply({
-
-              content:
-                '❌ บอทไม่มีสิทธิ์ Send Messages ในห้องนี้',
-
-              flags:
-                MessageFlags.Ephemeral
-
-            });
-
-          }
-
-          if (
-            !permissions?.has(
-              PermissionFlagsBits.EmbedLinks
-            )
-          ) {
-
-            return interaction.reply({
-
-              content:
-                '❌ บอทไม่มีสิทธิ์ Embed Links ในห้องนี้',
-
-              flags:
-                MessageFlags.Ephemeral
-
-            });
-
-          }
-
-          // =================================================
-          // OPTIONS
-          // =================================================
-
           const title =
-            interaction.options.getString(
-              'title'
-            ) ||
-            '🛒 ร้านขาย Key';
+            interaction.options
+              .getString(
+                'หัวข้อ'
+              ) ||
+            '🎡 ร้าน / สุ่มรางวัล';
 
           const item =
-            interaction.options.getString(
-              'item',
-              true
-            ).trim();
+            interaction.options
+              .getString(
+                'รายการ1',
+                true
+              )
+              .trim();
 
-          if (
-            !item
-          ) {
+          const idSuffix =
+            `${Date.now()}_${Math.random()
+              .toString(36)
+              .slice(2, 8)}`;
 
-            return interaction.reply({
+          const wheelRows =
+            buildWheelRows(
+              idSuffix
+            );
 
-              content:
-                '❌ กรุณาใส่ชื่อสินค้า',
-
-              flags:
-                MessageFlags.Ephemeral
-
-            });
-
-          }
-
-          // =================================================
-          // BUILD EMBED
-          // =================================================
-
-          const embed =
+          const shopEmbed =
             buildShopEmbed(
-              `${title} • ${item}`
-            )
+              `🛒 ${item}`
+            );
 
+          const wheelEmbed =
+            new EmbedBuilder()
+              .setTitle(
+                title
+              )
+              .setDescription(
+                `**${item}**\n\n` +
+                `🎡 เลือกระยะเวลาเพื่อสุ่ม\n` +
+                `หรือเลือกซื้อ Key ด้านล่าง\n\n` +
+                `🔹 ${LABEL.day2}\n` +
+                `🔹 ${LABEL.day3}\n` +
+                `🔹 ${LABEL.day7}`
+              )
+              .setColor(
+                0x5865F2
+              )
               .setFooter({
-
                 text:
                   footerText()
-
               })
-
               .setTimestamp();
 
-          const buttons =
-            buildShopButtons();
-
-          // =================================================
-          // SEND PANEL
-          // =================================================
-
           await interaction.reply({
-
             embeds: [
-              embed
+              wheelEmbed
             ],
-
-            components:
-              buttons
-
+            components: [
+              ...wheelRows,
+              ...buildShopButtons()
+            ]
           });
-
-          // =================================================
-          // GET SENT MESSAGE
-          // =================================================
 
           const sent =
             await interaction.fetchReply();
 
-          if (
-            !sent
-          ) {
-
-            console.error(
-              '❌ fetchReply() ไม่ได้ข้อความ Panel'
-            );
-
-            return;
-
-          }
-
-          // =================================================
-          // SAVE PANEL
-          // =================================================
-
           panels.push({
-
-            guildId:
-              interaction.guild.id,
-
             channelId:
               sent.channelId,
-
             messageId:
               sent.id
-
           });
 
           savePanels(
             panels
           );
 
-          console.log(
-            `✅ สร้าง Panel สำเร็จ: ${sent.id}`
-          );
-
           return;
-
         }
 
         // =================================================
@@ -2494,28 +1683,27 @@ client.on(
           ) {
 
             return interaction.reply({
-
               content:
-                '❌ สำหรับ Administrator เท่านั้น',
-
+                '❌ สำหรับแอดมินเท่านั้น',
               flags:
                 MessageFlags.Ephemeral
-
             });
 
           }
 
           const category =
-            interaction.options.getString(
-              'ประเภท',
-              true
-            );
+            interaction.options
+              .getString(
+                'ประเภท',
+                true
+              );
 
           const input =
-            interaction.options.getString(
-              'keys',
-              true
-            );
+            interaction.options
+              .getString(
+                'keys',
+                true
+              );
 
           const newKeys =
             parseKeysInput(
@@ -2527,13 +1715,10 @@ client.on(
           ) {
 
             return interaction.reply({
-
               content:
                 '❌ ไม่พบ Key',
-
               flags:
                 MessageFlags.Ephemeral
-
             });
 
           }
@@ -2542,27 +1727,20 @@ client.on(
             ...newKeys
           );
 
-          saveKeys(
-            keys
-          );
+          saveKeys(keys);
 
           await refreshAllPanels();
 
           return interaction.reply({
-
             content:
-
-              `✅ เพิ่ม Key สำเร็จ\n\n` +
-
-              `📦 ประเภท: **${category}**\n` +
-
-              `➕ เพิ่ม: **${newKeys.length} Key**\n` +
-
-              `📊 คงเหลือ: **${keys[category].length} Key**`,
-
+              `✅ เพิ่ม Key ${CHOICE_LABEL[category]} ` +
+              `จำนวน ${newKeys.length} อัน\n` +
+              `คงเหลือ: ` +
+              `2วัน ${keys.day2.length} • ` +
+              `3วัน ${keys.day3.length} • ` +
+              `7วัน ${keys.day7.length}`,
             flags:
               MessageFlags.Ephemeral
-
           });
 
         }
@@ -2582,95 +1760,50 @@ client.on(
           ) {
 
             return interaction.reply({
-
               content:
-                '❌ สำหรับ Administrator เท่านั้น',
-
+                '❌ สำหรับแอดมินเท่านั้น',
               flags:
                 MessageFlags.Ephemeral
-
             });
 
           }
 
-          const embed =
-            new EmbedBuilder()
+          const section =
+            cat => {
 
-              .setTitle(
-                '🔑 Key คงเหลือ'
-              )
+              if (
+                !keys[cat].length
+              ) {
 
-              .setColor(
-                0x5865F2
-              )
+                return 'ไม่มี Key';
 
-              .addFields(
+              }
 
-                {
+              return keys[cat]
+                .slice(0, 10)
+                .map(
+                  (k, i) =>
+                    `${i + 1}. \`${k}\``
+                )
+                .join('\n');
 
-                  name:
-                    '🎁 ฟรี 1 วัน',
-
-                  value:
-                    `${keys.free1.length} Key`,
-
-                  inline:
-                    true
-
-                },
-
-                {
-
-                  name:
-                    '🔵 2 วัน',
-
-                  value:
-                    `${keys.buy2.length} Key`,
-
-                  inline:
-                    true
-
-                },
-
-                {
-
-                  name:
-                    '🟣 3 วัน',
-
-                  value:
-                    `${keys.buy3.length} Key`,
-
-                  inline:
-                    true
-
-                },
-
-                {
-
-                  name:
-                    '🟡 7 วัน',
-
-                  value:
-                    `${keys.buy7.length} Key`,
-
-                  inline:
-                    true
-
-                }
-
-              )
-
-              .setTimestamp();
+            };
 
           return interaction.reply({
+            content:
+              `🔑 **Key คงเหลือ**\n\n` +
 
-            embeds: [
-              embed
-            ],
+              `**2 วัน (${keys.day2.length})**\n` +
+              section('day2') +
+
+              `\n\n**3 วัน (${keys.day3.length})**\n` +
+              section('day3') +
+
+              `\n\n**7 วัน (${keys.day7.length})**\n` +
+              section('day7'),
 
             flags:
               MessageFlags.Ephemeral
-
           });
 
         }
@@ -2690,37 +1823,29 @@ client.on(
           ) {
 
             return interaction.reply({
-
               content:
-                '❌ สำหรับ Administrator เท่านั้น',
-
+                '❌ สำหรับแอดมินเท่านั้น',
               flags:
                 MessageFlags.Ephemeral
-
             });
 
           }
 
           const target =
-            interaction.options.getString(
-              'ประเภท',
-              true
-            );
+            interaction.options
+              .getString(
+                'ประเภท'
+              ) ||
+              'all';
 
           if (
             target === 'all'
           ) {
 
             keys = {
-
-              free1: [],
-
-              buy2: [],
-
-              buy3: [],
-
-              buy7: []
-
+              day2: [],
+              day3: [],
+              day7: []
             };
 
           } else {
@@ -2729,44 +1854,18 @@ client.on(
 
           }
 
-          saveKeys(
-            keys
-          );
+          saveKeys(keys);
 
           await refreshAllPanels();
 
           return interaction.reply({
-
             content:
               '🗑️ ล้าง Key เรียบร้อยแล้ว',
-
             flags:
               MessageFlags.Ephemeral
-
           });
 
         }
-
-      }
-
-      // =================================================
-      // FREE BUTTON
-      // =================================================
-
-      if (
-
-        interaction.isButton() &&
-
-        interaction.customId ===
-          'free_1'
-
-      ) {
-
-        await claimFree(
-          interaction
-        );
-
-        return;
 
       }
 
@@ -2775,13 +1874,10 @@ client.on(
       // =================================================
 
       if (
-
         interaction.isButton() &&
-
         interaction.customId.startsWith(
           'buy_'
         )
-
       ) {
 
         const productId =
@@ -2793,18 +1889,13 @@ client.on(
         const product =
           PRODUCTS[productId];
 
-        if (
-          !product
-        ) {
+        if (!product) {
 
           return interaction.reply({
-
             content:
               '❌ ไม่พบสินค้า',
-
             flags:
               MessageFlags.Ephemeral
-
           });
 
         }
@@ -2815,71 +1906,46 @@ client.on(
         ) {
 
           return interaction.reply({
-
             content:
-              '❌ สินค้านี้หมดแล้ว',
-
+              '❌ Key สินค้านี้หมดแล้ว',
             flags:
               MessageFlags.Ephemeral
-
           });
 
         }
 
-        // =================================================
-        // MODAL
-        // =================================================
-
         const modal =
           new ModalBuilder()
-
             .setCustomId(
               `payment_${productId}`
             )
-
             .setTitle(
               `ซื้อ ${product.label} • ${product.price} บาท`
             );
 
         const input =
           new TextInputBuilder()
-
             .setCustomId(
               'truemoney_link'
             )
-
             .setLabel(
               'ลิงก์ซอง TrueMoney'
             )
-
             .setPlaceholder(
               'https://gift.truemoney.com/campaign/?v=...'
             )
-
             .setStyle(
               TextInputStyle.Short
             )
-
-            .setRequired(
-              true
-            )
-
-            .setMinLength(
-              10
-            )
-
-            .setMaxLength(
-              500
-            );
+            .setRequired(true)
+            .setMinLength(10)
+            .setMaxLength(500);
 
         modal.addComponents(
-
           new ActionRowBuilder()
-
             .addComponents(
               input
             )
-
         );
 
         await interaction.showModal(
@@ -2895,13 +1961,10 @@ client.on(
       // =================================================
 
       if (
-
         interaction.isModalSubmit() &&
-
         interaction.customId.startsWith(
           'payment_'
         )
-
       ) {
 
         const productId =
@@ -2913,39 +1976,28 @@ client.on(
         const product =
           PRODUCTS[productId];
 
-        if (
-          !product
-        ) {
+        if (!product) {
 
           return interaction.reply({
-
             content:
               '❌ ไม่พบสินค้า',
-
             flags:
               MessageFlags.Ephemeral
-
           });
 
         }
 
-        const userId =
-          interaction.user.id;
-
         if (
           buyingNow.has(
-            userId
+            interaction.user.id
           )
         ) {
 
           return interaction.reply({
-
             content:
               '⏳ กำลังตรวจสอบรายการเดิมอยู่ กรุณารอสักครู่',
-
             flags:
               MessageFlags.Ephemeral
-
           });
 
         }
@@ -2956,68 +2008,38 @@ client.on(
         ) {
 
           return interaction.reply({
-
             content:
-              '❌ Key สินค้านี้หมดแล้ว',
-
+              '❌ Key หมดแล้ว',
             flags:
               MessageFlags.Ephemeral
-
           });
 
         }
 
         const voucher =
-          interaction.fields.getTextInputValue(
-            'truemoney_link'
-          ).trim();
-
-        if (
-          !voucher
-        ) {
-
-          return interaction.reply({
-
-            content:
-              '❌ ไม่พบลิงก์ซอง TrueMoney',
-
-            flags:
-              MessageFlags.Ephemeral
-
-          });
-
-        }
+          interaction.fields
+            .getTextInputValue(
+              'truemoney_link'
+            )
+            .trim();
 
         buyingNow.add(
-          userId
+          interaction.user.id
         );
 
         try {
 
           await interaction.reply({
-
             content:
-
-              `⏳ กำลังตรวจสอบซองและรับเงิน ` +
-
-              `**${product.price} บาท** ...`,
-
+              `⏳ กำลังตรวจสอบซองและรับเงิน **${product.price} บาท** ...`,
             flags:
               MessageFlags.Ephemeral
-
           });
-
-          // =================================================
-          // RECEIVE MONEY
-          // =================================================
 
           const payment =
             await receiveTrueMoney(
-
               voucher,
-
               product.price
-
             );
 
           if (
@@ -3025,24 +2047,15 @@ client.on(
           ) {
 
             await interaction.editReply({
-
               content:
-
                 `❌ รับเงินไม่สำเร็จ\n\n` +
-
                 `รหัส: \`${payment.code || 'UNKNOWN'}\`\n` +
-
                 `${payment.message || ''}`
-
             });
 
             return;
 
           }
-
-          // =================================================
-          // CHECK KEY
-          // =================================================
 
           if (
             !keys[productId] ||
@@ -3050,187 +2063,211 @@ client.on(
           ) {
 
             await interaction.editReply({
-
               content:
-
-                '⚠️ รับเงินสำเร็จ แต่ Key หมดพอดี\n' +
-
-                'กรุณาติดต่อแอดมิน'
-
+                '⚠️ รับเงินสำเร็จ แต่ Key หมดพอดี กรุณาติดต่อแอดมิน'
             });
 
             return;
 
           }
-
-          // =================================================
-          // TAKE KEY
-          // =================================================
 
           const key =
             takeKey(
               productId
             );
 
-          if (
-            !key
-          ) {
+          if (!key) {
 
             await interaction.editReply({
-
               content:
-
-                '⚠️ รับเงินสำเร็จ แต่ไม่สามารถดึง Key ได้\n' +
-
-                'กรุณาติดต่อแอดมิน'
-
+                '⚠️ รับเงินสำเร็จ แต่ไม่สามารถดึง Key ได้'
             });
 
             return;
 
           }
-
-          // =================================================
-          // SEND DM
-          // =================================================
 
           try {
 
             await interaction.user.send({
+              content:
+                key
+            });
 
+            await interaction.user.send({
               embeds: [
-
                 new EmbedBuilder()
-
                   .setTitle(
                     '🎉 ซื้อ Key สำเร็จ'
                   )
-
                   .setDescription(
-
-                    [
-
-                      `📦 **สินค้า:** ${product.label}`,
-
-                      `💰 **ราคา:** ${product.price} บาท`,
-
-                      '',
-
-                      '🔑 **Code ของคุณ:**',
-
-                      '',
-
-                      `\`${key}\``,
-
-                      '',
-
-                      'กรุณาเก็บ Code ไว้ให้ดี'
-
-                    ].join('\n')
-
+                    `**สินค้า:** ${product.label}\n` +
+                    `**ราคา:** ${product.price} บาท\n\n` +
+                    `🔑 Key ถูกส่งให้ในข้อความก่อนหน้านี้`
                   )
-
                   .setColor(
                     0x57F287
                   )
-
                   .setTimestamp()
-
               ]
-
             });
 
           } catch (dmError) {
 
-            // คืน Key
             keys[productId].unshift(
               key
             );
 
-            saveKeys(
-              keys
-            );
+            saveKeys(keys);
 
             await interaction.editReply({
-
               content:
-
-                '⚠️ รับเงินสำเร็จแล้ว แต่ไม่สามารถส่ง DM ได้\n' +
-
+                '⚠️ รับเงินสำเร็จแล้ว แต่ส่ง DM ไม่ได้\n' +
                 'กรุณาเปิดรับ DM แล้วติดต่อแอดมิน'
-
             });
 
             return;
 
           }
 
-          // =================================================
-          // SUCCESS
-          // =================================================
-
           await interaction.editReply({
-
             content:
-
               `✅ ชำระเงินสำเร็จ **${product.price} บาท**\n\n` +
-
               `📦 ${product.label}\n` +
-
-              `📩 Code ถูกส่งทาง DM แล้ว`
-
+              `📩 Key ถูกส่งทาง DM แล้ว`
           });
 
           await refreshAllPanels();
 
-          // =================================================
-          // OWNER LOG
-          // =================================================
-
-          try {
-
-            const owner =
-              await client.users.fetch(
-                config.ownerId
-              );
-
-            await owner.send({
-
-              embeds: [
-
-                new EmbedBuilder()
-
-                  .setTitle(
-                    '💰 มีการซื้อ Key'
-                  )
-
-                  .setDescription(
-
-                    `👤 ลูกค้า: ${interaction.user.tag}\n` +
-
-                    `🆔 ID: ${interaction.user.id}\n` +
-
-                    `📦 สินค้า: ${product.label}\n` +
-
-                    `💰 ราคา: ${product.price} บาท`
-
-                  )
-
-                  .setColor(
-                    0x57F287
-                  )
-
-                  .setTimestamp()
-
-              ]
-
-            });
-
-          } catch {}
-
         } finally {
 
           buyingNow.delete(
+            interaction.user.id
+          );
+
+        }
+
+        return;
+
+      }
+
+      // =================================================
+      // SPIN BUTTON
+      // =================================================
+
+      if (
+        interaction.isButton() &&
+        interaction.customId.startsWith(
+          'spin_'
+        )
+      ) {
+
+        const category =
+          categoryFromCustomId(
+            interaction.customId
+          );
+
+        if (!category) {
+          return;
+        }
+
+        const userId =
+          interaction.user.id;
+
+        if (
+          spinningNow.has(
+            userId
+          )
+        ) {
+
+          return interaction.reply({
+            content:
+              '⏳ กำลังหมุนอยู่',
+            flags:
+              MessageFlags.Ephemeral
+          });
+
+        }
+
+        const now =
+          Date.now();
+
+        const lastSpin =
+          cooldowns[userId] ||
+          0;
+
+        const elapsed =
+          now - lastSpin;
+
+        if (
+          elapsed <
+          COOLDOWN_MS
+        ) {
+
+          return interaction.reply({
+            content:
+              `⏰ กรุณารออีก **${
+                formatRemaining(
+                  COOLDOWN_MS -
+                  elapsed
+                )
+              }**`,
+            flags:
+              MessageFlags.Ephemeral
+          });
+
+        }
+
+        if (
+          keys[category].length === 0
+        ) {
+
+          await refreshPanel(
+            interaction.message
+          );
+
+          return interaction.reply({
+            content:
+              `😢 Key ${CHOICE_LABEL[category]} หมด`,
+            flags:
+              MessageFlags.Ephemeral
+          });
+
+        }
+
+        cooldowns[userId] =
+          now;
+
+        saveCooldowns(
+          cooldowns
+        );
+
+        spinningNow.add(
+          userId
+        );
+
+        try {
+
+          const itemName =
+            interaction.message
+              .embeds[0]
+              ?.description
+              ?.split('\n')[0]
+              ?.replace(
+                /\*\*/g,
+                ''
+              ) ||
+            'รางวัล';
+
+          await spinWheel(
+            interaction,
+            itemName,
+            category
+          );
+
+        } finally {
+
+          spinningNow.delete(
             userId
           );
 
@@ -3243,7 +2280,7 @@ client.on(
     } catch (error) {
 
       console.error(
-        '❌ Interaction Error:',
+        'Interaction Error:',
         error
       );
 
@@ -3255,22 +2292,17 @@ client.on(
         ) {
 
           await interaction.editReply({
-
             content:
               '❌ เกิดข้อผิดพลาดในระบบ'
-
           });
 
         } else {
 
           await interaction.reply({
-
             content:
               '❌ เกิดข้อผิดพลาดในระบบ',
-
             flags:
               MessageFlags.Ephemeral
-
           });
 
         }
@@ -3287,25 +2319,26 @@ client.on(
 // LOGIN
 // =====================================================
 
+if (!process.env.TOKEN) {
+
+  console.error(
+    '❌ ไม่มี TOKEN ใน .env'
+  );
+
+  process.exit(1);
+
+}
+
+if (!process.env.CLIENT_ID) {
+
+  console.error(
+    '❌ ไม่มี CLIENT_ID ใน .env'
+  );
+
+  process.exit(1);
+
+}
+
 client.login(
-  config.token
-)
-
-  .then(() => {
-
-    console.log(
-      '🔐 Login สำเร็จ'
-    );
-
-  })
-
-  .catch(error => {
-
-    console.error(
-      '❌ Login ไม่สำเร็จ:',
-      error.message
-    );
-
-    process.exit(1);
-
-  });
+  process.env.TOKEN
+);
