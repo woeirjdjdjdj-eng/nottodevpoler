@@ -1,14 +1,17 @@
 {
-  "name": "discord-key-bot-truemoney",
+  "name": "discord-key-spin-bot",
   "version": "1.0.0",
-  "description": "Discord Key Bot + TrueMoney Auto-Payment",
+  "description": "Discord bot สุ่มวงล้อแจก Key ตามระยะเวลา 1/2/3 วัน",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.14.1",
-    "express": "^4.18.2"
-  }
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
 }
