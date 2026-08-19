@@ -11,8 +11,9 @@ const config = require('./config');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent, // ต้องเปิด Privileged Intent ใน Developer Portal ด้วย
+    GatewayIntentBits.GuildMessages,   // อ่านข้อความในแชนแนลเซิร์ฟเวอร์
+    GatewayIntentBits.DirectMessages,  // อ่านข้อความ DM
+    GatewayIntentBits.MessageContent,  // ต้องเปิด Privileged Intent ใน Developer Portal ด้วย
   ],
   partials: [Partials.Channel], // จำเป็นสำหรับรับ event ข้อความ DM
 });
@@ -310,7 +311,12 @@ async function spinWheel(interaction, itemName, category) {
           embeds: [
             new EmbedBuilder()
               .setTitle('🎉 คุณชนะ!')
-              .setDescription(`คุณสุ่มจาก **${itemName}** (${CHOICE_LABEL[category]}) แล้วได้ Key\n\n\`\`\`\n${key}\n\`\`\`\nกรุณาเก็บรักษาไว้ดีๆ นะครับ`)
+              .setDescription(
+                `คุณสุ่มจาก **${itemName}** (${CHOICE_LABEL[category]}) แล้วได้ Key ของคุณ\n\n` +
+                `\`\`\`\n${key}\n\`\`\`\n` +
+                `👆 **กดค้างที่คีย์ด้านบนแล้วเลือก "คัดลอก / Copy"**\n\n` +
+                `กรุณาเก็บรักษาไว้ดีๆ นะครับ`
+              )
               .setColor(0x57F287)
               .setTimestamp()
           ]
@@ -325,7 +331,7 @@ async function spinWheel(interaction, itemName, category) {
           `**${itemName}** • **${CHOICE_LABEL[category]}**\n\n` +
           (dmSent
             ? '📩 บอทได้ส่ง Key ของคุณไปทาง DM แล้ว'
-            : `⚠️ ส่ง DM ไม่สำเร็จ (คุณปิดรับข้อความจากบอท) นี่คือ Key ของคุณ:\n\`\`\`\n${key}\n\`\`\``)
+            : `⚠️ ส่ง DM ไม่สำเร็จ (คุณปิดรับข้อความจากบอท) นี่คือ Key ของคุณ:\n\`\`\`\n${key}\n\`\`\`\n👆 กดค้างที่คีย์ด้านบนแล้วเลือก "คัดลอก / Copy"`)
         )
         .setColor(0x57F287)
         .setFooter({ text: `สุ่มใหม่ได้อีกครั้งใน ${COOLDOWN_MS / 60000} นาที` })
@@ -379,40 +385,73 @@ client.once(Events.ClientReady, async (c) => {
   }
 });
 
-// ===== รับ DM จากเจ้าของบอท → เก็บเป็น Key อัตโนมัติ =====
+// ===== พิมพ์ข้อความ (DM หรือแชนแนล) เพื่อเก็บเป็น Key อัตโนมัติ =====
 client.on(Events.MessageCreate, async (message) => {
   try {
     if (message.author.bot) return;
-    if (message.guild) return; // เฉพาะ DM เท่านั้น
-    if (message.author.id !== config.ownerId) return;
 
+    const isDM = !message.guild;
     const raw = message.content?.trim();
     if (!raw) return;
 
-    let category = 'day1';
-    let body = raw;
+    const prefixMatch = raw.match(/^([123])\s*(?:วัน)?\s*[:\-]?\s*(.+)$/i);
 
-    const prefixMatch = raw.match(/^([123])\s*(?:วัน)?\s*[:\-]\s*([\s\S]+)$/i);
-    if (prefixMatch) {
-      category = `day${prefixMatch[1]}`;
-      body = prefixMatch[2];
+    if (isDM) {
+      // ===== โหมด DM: เฉพาะเจ้าของบอทเท่านั้น, ไม่ใส่ 1:/2:/3: นำหน้าได้ (default = 1 วัน) =====
+      if (message.author.id !== config.ownerId) return;
+
+      let category = 'day1';
+      let body = raw;
+      if (prefixMatch) {
+        category = `day${prefixMatch[1]}`;
+        body = prefixMatch[2];
+      }
+
+      const newKeys = parseKeysInput(body);
+      if (!newKeys.length) {
+        return message.reply('❌ ไม่พบข้อความ Key ที่จะเพิ่ม');
+      }
+
+      keys[category].push(...newKeys);
+      saveKeys(keys);
+      await refreshAllPanels();
+
+      return message.reply(
+        `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเร็จ **${newKeys.length}** อัน\n` +
+        `ตอนนี้เหลือ: 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}`
+      );
     }
 
+    // ===== โหมดแชนแนลในเซิร์ฟเวอร์: ต้องมีสิทธิ์ผู้ดูแล และต้องระบุ 1/2/3 นำหน้าชัดเจนเท่านั้น =====
+    if (!message.member?.permissions?.has(PermissionFlagsBits.Administrator)) return;
+    if (!prefixMatch) return; // ไม่ตรงฟอร์แมต ปล่อยผ่านเงียบๆ ไม่ไปยุ่งกับแชทปกติ
+
+    const category = `day${prefixMatch[1]}`;
+    const body = prefixMatch[2];
     const newKeys = parseKeysInput(body);
+
     if (!newKeys.length) {
-      return message.reply('❌ ไม่พบข้อความ Key ที่จะเพิ่ม');
+      const warn = await message.reply('❌ ไม่พบ Key ที่จะเพิ่ม (รูปแบบ: `1:คีย์` หรือ `2:คีย์1,คีย์2`)');
+      setTimeout(() => warn.delete().catch(() => {}), 5000);
+      return;
     }
 
     keys[category].push(...newKeys);
     saveKeys(keys);
-    await refreshAllPanels(); // ปลดล็อกปุ่ม/อัปเดตจำนวนในทุกหน้าต่างที่เคยสร้างไว้
+    await refreshAllPanels();
 
-    await message.reply(
-      `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเร็จ **${newKeys.length}** อัน\n` +
-      `ตอนนี้เหลือ: 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}`
+    const confirm = await message.reply(
+      `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเร็จ **${newKeys.length}** อัน ` +
+      `(1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length})`
     );
+
+    // ลบข้อความคำสั่ง + ข้อความคีย์ทิ้งหลัง 5 วิ กันคีย์ค้างโชว์ในแชนแนล
+    setTimeout(() => {
+      message.delete().catch(() => {});
+      confirm.delete().catch(() => {});
+    }, 5000);
   } catch (e) {
-    console.error('รับ DM key ไม่สำเร็จ:', e.message);
+    console.error('รับ key จากข้อความไม่สำเร็จ:', e.message);
   }
 });
 
