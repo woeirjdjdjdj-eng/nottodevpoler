@@ -23,7 +23,6 @@ require('dotenv').config();
 
 const config = require('./config');
 
-// TrueMoney third-party SDK
 const {
   TmnVoucherClient
 } = require('@prakrit_m/tmn-voucher');
@@ -48,29 +47,33 @@ const client = new Client({
 
 const COOLDOWN_MS = 60 * 60 * 1000;
 
-// ประเภท Key เดิม
+// เปลี่ยนเป็น 2 / 3 / 7 วัน
 const CATEGORIES = [
-  'day1',
   'day2',
-  'day3'
+  'day3',
+  'day7'
 ];
 
+// =====================================================
+// โอกาสสุ่ม
+// =====================================================
+
 const WIN_CHANCE = {
-  day1: 0.50,
   day2: 0.25,
-  day3: 0.10
+  day3: 0.10,
+  day7: 0.05
 };
 
 const LABEL = {
-  day1: '1 วัน (50%)',
   day2: '2 วัน (25%)',
-  day3: '3 วัน (10%)'
+  day3: '3 วัน (10%)',
+  day7: '7 วัน (5%)'
 };
 
 const CHOICE_LABEL = {
-  day1: '1 วัน',
   day2: '2 วัน',
-  day3: '3 วัน'
+  day3: '3 วัน',
+  day7: '7 วัน'
 };
 
 // =====================================================
@@ -78,12 +81,6 @@ const CHOICE_LABEL = {
 // =====================================================
 
 const PRODUCTS = {
-  day1: {
-    days: 1,
-    price: 5,
-    label: '1 วัน',
-    emoji: '🟢'
-  },
 
   day2: {
     days: 2,
@@ -97,14 +94,23 @@ const PRODUCTS = {
     price: 15,
     label: '3 วัน',
     emoji: '🟣'
+  },
+
+  day7: {
+    days: 7,
+    price: 35,
+    label: '7 วัน',
+    emoji: '🟡'
   }
+
 };
 
 // =====================================================
 // DATA
 // =====================================================
 
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR =
+  path.join(__dirname, 'data');
 
 const KEYS_FILE =
   path.join(DATA_DIR, 'keys.json');
@@ -116,9 +122,11 @@ const PANELS_FILE =
   path.join(DATA_DIR, 'panels.json');
 
 if (!fs.existsSync(DATA_DIR)) {
+
   fs.mkdirSync(DATA_DIR, {
     recursive: true
   });
+
 }
 
 // =====================================================
@@ -139,9 +147,6 @@ function loadKeys() {
       );
 
       return {
-        day1: Array.isArray(data.day1)
-          ? data.day1
-          : [],
 
         day2: Array.isArray(data.day2)
           ? data.day2
@@ -149,8 +154,14 @@ function loadKeys() {
 
         day3: Array.isArray(data.day3)
           ? data.day3
+          : [],
+
+        day7: Array.isArray(data.day7)
+          ? data.day7
           : []
+
       };
+
     }
 
   } catch (error) {
@@ -159,13 +170,15 @@ function loadKeys() {
       'โหลด Key ไม่สำเร็จ:',
       error.message
     );
+
   }
 
   return {
-    day1: [],
     day2: [],
-    day3: []
+    day3: [],
+    day7: []
   };
+
 }
 
 function saveKeys(keysData = keys) {
@@ -188,7 +201,9 @@ function saveKeys(keysData = keys) {
       'บันทึก Key ไม่สำเร็จ:',
       error.message
     );
+
   }
+
 }
 
 let keys = loadKeys();
@@ -219,11 +234,13 @@ function loadCooldowns() {
         typeof data === 'object'
         ? data
         : {};
+
     }
 
   } catch {}
 
   return {};
+
 }
 
 function saveCooldowns(data) {
@@ -246,7 +263,9 @@ function saveCooldowns(data) {
       'บันทึกคูลดาวน์ไม่สำเร็จ:',
       error.message
     );
+
   }
+
 }
 
 let cooldowns =
@@ -277,11 +296,13 @@ function loadPanels() {
       return Array.isArray(data.panels)
         ? data.panels
         : [];
+
     }
 
   } catch {}
 
   return [];
+
 }
 
 function savePanels(data) {
@@ -306,7 +327,9 @@ function savePanels(data) {
       'บันทึก Panel ไม่สำเร็จ:',
       error.message
     );
+
   }
+
 }
 
 let panels =
@@ -348,15 +371,17 @@ function formatRemaining(ms) {
   }
 
   return `${m} นาที`;
+
 }
 
 function footerText() {
 
   return (
-    `1วัน เหลือ ${keys.day1.length} • ` +
     `2วัน เหลือ ${keys.day2.length} • ` +
-    `3วัน เหลือ ${keys.day3.length}`
+    `3วัน เหลือ ${keys.day3.length} • ` +
+    `7วัน เหลือ ${keys.day7.length}`
   );
+
 }
 
 function parseKeysInput(input) {
@@ -365,6 +390,7 @@ function parseKeysInput(input) {
     .split(/[\n,]+/)
     .map(k => k.trim())
     .filter(Boolean);
+
 }
 
 // =====================================================
@@ -378,21 +404,12 @@ if (!process.env.TRUEMONEY_PHONE) {
   );
 
   process.exit(1);
+
 }
 
 const tmn =
   new TmnVoucherClient();
 
-/**
- * รับซอง TrueMoney
- *
- * amount ใช้ "สตางค์"
- * 5 บาท  = 500
- * 10 บาท = 1000
- * 15 บาท = 1500
- *
- * SDK จะตรวจ amount ก่อน redeem
- */
 async function receiveTrueMoney(
   voucher,
   expectedBaht
@@ -423,6 +440,7 @@ async function receiveTrueMoney(
           result.message ||
           'รับเงินไม่สำเร็จ'
       };
+
     }
 
     const receivedSatang =
@@ -440,9 +458,9 @@ async function receiveTrueMoney(
         success: false,
         code: 'AMOUNT_MISMATCH',
         message:
-          `ยอดเงินไม่ตรง ` +
-          `ได้รับ ${receivedBaht} บาท`
+          `ยอดเงินไม่ตรง ได้รับ ${receivedBaht} บาท`
       };
+
     }
 
     return {
@@ -464,7 +482,9 @@ async function receiveTrueMoney(
       message:
         'เกิดข้อผิดพลาดในการรับเงิน'
     };
+
   }
+
 }
 
 // =====================================================
@@ -481,9 +501,9 @@ function buildShopEmbed(
       [
         'เลือกแพ็กเกจที่ต้องการซื้อ',
         '',
-        '🟢 **1 วัน — 5 บาท**',
         '🔵 **2 วัน — 10 บาท**',
         '🟣 **3 วัน — 15 บาท**',
+        '🟡 **7 วัน — 35 บาท**',
         '',
         'หลังเลือกสินค้า',
         'ระบบจะเปิดหน้าต่างให้ใส่ลิงก์ซอง TrueMoney',
@@ -497,6 +517,7 @@ function buildShopEmbed(
       text:
         'กรุณาเปิดรับ DM จากสมาชิกเซิร์ฟเวอร์'
     });
+
 }
 
 // =====================================================
@@ -509,21 +530,6 @@ function buildShopButtons() {
 
     new ActionRowBuilder()
       .addComponents(
-
-        new ButtonBuilder()
-          .setCustomId(
-            'buy_day1'
-          )
-          .setLabel(
-            '1 วัน • 5 บาท'
-          )
-          .setEmoji('🟢')
-          .setStyle(
-            ButtonStyle.Success
-          )
-          .setDisabled(
-            keys.day1.length === 0
-          ),
 
         new ButtonBuilder()
           .setCustomId(
@@ -553,10 +559,27 @@ function buildShopButtons() {
           )
           .setDisabled(
             keys.day3.length === 0
+          ),
+
+        new ButtonBuilder()
+          .setCustomId(
+            'buy_day7'
           )
+          .setLabel(
+            '7 วัน • 35 บาท'
+          )
+          .setEmoji('🟡')
+          .setStyle(
+            ButtonStyle.Success
+          )
+          .setDisabled(
+            keys.day7.length === 0
+          )
+
       )
 
   ];
+
 }
 
 // =====================================================
@@ -590,10 +613,13 @@ function buildWheelRows(
         .setDisabled(
           keys[category].length === 0
         )
+
     );
+
   }
 
   return [row];
+
 }
 
 // =====================================================
@@ -615,10 +641,13 @@ function categoryFromCustomId(
     ) {
 
       return cat;
+
     }
+
   }
 
   return null;
+
 }
 
 // =====================================================
@@ -633,6 +662,7 @@ function takeKey(category) {
   ) {
 
     return null;
+
   }
 
   const key =
@@ -641,6 +671,7 @@ function takeKey(category) {
   saveKeys(keys);
 
   return key;
+
 }
 
 // =====================================================
@@ -660,6 +691,7 @@ async function refreshPanel(
     ) {
 
       return;
+
     }
 
     const oldEmbed =
@@ -698,6 +730,7 @@ async function refreshPanel(
               button.setDisabled(
                 keys[cat].length === 0
               );
+
             }
 
             if (
@@ -719,15 +752,19 @@ async function refreshPanel(
                 button.setDisabled(
                   keys[buyCat].length === 0
                 );
+
               }
+
             }
 
             newRow.addComponents(
               button
             );
+
           }
 
           return newRow;
+
         }
       );
 
@@ -742,7 +779,9 @@ async function refreshPanel(
       'Refresh Panel Error:',
       error.message
     );
+
   }
+
 }
 
 // =====================================================
@@ -780,11 +819,13 @@ async function refreshAllPanels() {
       valid.push(panel);
 
     } catch {}
+
   }
 
   panels = valid;
 
   savePanels(panels);
+
 }
 
 // =====================================================
@@ -854,6 +895,7 @@ function renderWheelFrame(
     `      ▶ ${cur} ◀\n` +
     '```'
   );
+
 }
 
 async function spinWheel(
@@ -978,6 +1020,7 @@ async function spinWheel(
         )
       ]
     });
+
   }
 
   await new Promise(
@@ -1016,6 +1059,7 @@ async function spinWheel(
       );
 
       return;
+
     }
 
     let dmSuccess = true;
@@ -1048,6 +1092,7 @@ async function spinWheel(
     } catch {
 
       dmSuccess = false;
+
     }
 
     await interaction.editReply({
@@ -1070,12 +1115,12 @@ async function spinWheel(
 
     if (!dmSuccess) {
 
-      // คืน Key
       keys[category].unshift(
         key
       );
 
       saveKeys(keys);
+
     }
 
   } else {
@@ -1094,11 +1139,13 @@ async function spinWheel(
           )
       ]
     });
+
   }
 
   await refreshPanel(
     interaction.message
   );
+
 }
 
 // =====================================================
@@ -1154,16 +1201,16 @@ async function deployCommands() {
             .setRequired(true)
             .addChoices(
               {
-                name: '1 วัน',
-                value: 'day1'
-              },
-              {
                 name: '2 วัน',
                 value: 'day2'
               },
               {
                 name: '3 วัน',
                 value: 'day3'
+              },
+              {
+                name: '7 วัน',
+                value: 'day7'
               }
             )
       )
@@ -1206,10 +1253,6 @@ async function deployCommands() {
             .setRequired(false)
             .addChoices(
               {
-                name: '1 วัน',
-                value: 'day1'
-              },
-              {
                 name: '2 วัน',
                 value: 'day2'
               },
@@ -1218,12 +1261,17 @@ async function deployCommands() {
                 value: 'day3'
               },
               {
+                name: '7 วัน',
+                value: 'day7'
+              },
+              {
                 name: 'ทั้งหมด',
                 value: 'all'
               }
             )
       )
       .toJSON()
+
   ];
 
   const rest =
@@ -1259,6 +1307,7 @@ async function deployCommands() {
           body: commands
         }
       );
+
     }
 
     console.log(
@@ -1271,7 +1320,9 @@ async function deployCommands() {
       '❌ Deploy Commands Error:',
       error.message
     );
+
   }
+
 }
 
 // =====================================================
@@ -1287,15 +1338,15 @@ client.once(
     );
 
     console.log(
-      `📦 1 วัน: ${keys.day1.length}`
-    );
-
-    console.log(
       `📦 2 วัน: ${keys.day2.length}`
     );
 
     console.log(
       `📦 3 วัน: ${keys.day3.length}`
+    );
+
+    console.log(
+      `📦 7 วัน: ${keys.day7.length}`
     );
 
     await deployCommands();
@@ -1314,10 +1365,10 @@ client.once(
               '🤖 บอทพร้อมใช้งาน'
             )
             .setDescription(
-              `1 วัน: ${keys.day1.length}\n` +
               `2 วัน: ${keys.day2.length}\n` +
-              `3 วัน: ${keys.day3.length}\n\n` +
-              `ซื้อ: 1 วัน 5 บาท / 2 วัน 10 บาท / 3 วัน 15 บาท`
+              `3 วัน: ${keys.day3.length}\n` +
+              `7 วัน: ${keys.day7.length}\n\n` +
+              `ซื้อ: 2 วัน 10 บาท / 3 วัน 15 บาท / 7 วัน 35 บาท`
             )
             .setColor(
               0x57F287
@@ -1326,7 +1377,9 @@ client.once(
       });
 
     } catch {}
+
   }
+
 );
 
 // =====================================================
@@ -1353,9 +1406,21 @@ client.on(
       const isDM =
         !message.guild;
 
-      // ============================================
+      // =================================================
       // DM เจ้าของ → เพิ่ม Key
-      // ============================================
+      //
+      // ใช้:
+      //
+      // ชื้อ2: KEY
+      // ชื้อ3: KEY
+      // ชื้อ7: KEY
+      //
+      // หลาย Key:
+      //
+      // ชื้อ2: KEY-001
+      // KEY-002
+      // KEY-003
+      // =================================================
 
       if (isDM) {
 
@@ -1369,7 +1434,7 @@ client.on(
 
         const match =
           raw.match(
-            /^([123])\s*:\s*(.+)$/s
+            /^ชื้อ\s*([237])\s*:\s*(.+)$/is
           );
 
         if (!match) {
@@ -1414,9 +1479,13 @@ client.on(
         return;
       }
 
-      // ============================================
-      // Server → เพิ่ม Key ด้วย 1:/2:/3:
-      // ============================================
+      // =================================================
+      // Server → รองรับเพิ่ม Key แบบเดิมสำหรับ Admin
+      //
+      // 2: KEY
+      // 3: KEY
+      // 7: KEY
+      // =================================================
 
       if (
         !message.member?.permissions?.has(
@@ -1429,7 +1498,7 @@ client.on(
 
       const prefixMatch =
         raw.match(
-          /^([123])\s*(?:วัน)?\s*[:\-]\s*(.+)$/s
+          /^([237])\s*(?:วัน)?\s*[:\-]\s*(.+)$/s
         );
 
       if (!prefixMatch) {
@@ -1467,11 +1536,13 @@ client.on(
 
       setTimeout(
         () => {
+
           message.delete()
             .catch(() => {});
 
           confirm.delete()
             .catch(() => {});
+
         },
         5000
       );
@@ -1482,8 +1553,11 @@ client.on(
         'Message Error:',
         error
       );
+
     }
+
   }
+
 );
 
 // =====================================================
@@ -1507,9 +1581,9 @@ client.on(
         const name =
           interaction.commandName;
 
-        // =============================================
+        // =================================================
         // /เลือกห้อง
-        // =============================================
+        // =================================================
 
         if (
           name === 'เลือกห้อง'
@@ -1554,9 +1628,9 @@ client.on(
                 `**${item}**\n\n` +
                 `🎡 เลือกระยะเวลาเพื่อสุ่ม\n` +
                 `หรือเลือกซื้อ Key ด้านล่าง\n\n` +
-                `🔹 ${LABEL.day1}\n` +
                 `🔹 ${LABEL.day2}\n` +
-                `🔹 ${LABEL.day3}`
+                `🔹 ${LABEL.day3}\n` +
+                `🔹 ${LABEL.day7}`
               )
               .setColor(
                 0x5865F2
@@ -1567,7 +1641,6 @@ client.on(
               })
               .setTimestamp();
 
-          // ส่ง panel หลัก
           await interaction.reply({
             embeds: [
               wheelEmbed
@@ -1595,9 +1668,9 @@ client.on(
           return;
         }
 
-        // =============================================
+        // =================================================
         // /เพิ่มคีย์
-        // =============================================
+        // =================================================
 
         if (
           name === 'เพิ่มคีย์'
@@ -1615,6 +1688,7 @@ client.on(
               flags:
                 MessageFlags.Ephemeral
             });
+
           }
 
           const category =
@@ -1646,6 +1720,7 @@ client.on(
               flags:
                 MessageFlags.Ephemeral
             });
+
           }
 
           keys[category].push(
@@ -1661,17 +1736,18 @@ client.on(
               `✅ เพิ่ม Key ${CHOICE_LABEL[category]} ` +
               `จำนวน ${newKeys.length} อัน\n` +
               `คงเหลือ: ` +
-              `1วัน ${keys.day1.length} • ` +
               `2วัน ${keys.day2.length} • ` +
-              `3วัน ${keys.day3.length}`,
+              `3วัน ${keys.day3.length} • ` +
+              `7วัน ${keys.day7.length}`,
             flags:
               MessageFlags.Ephemeral
           });
+
         }
 
-        // =============================================
+        // =================================================
         // /ดูคีย์
-        // =============================================
+        // =================================================
 
         if (
           name === 'ดูคีย์'
@@ -1689,6 +1765,7 @@ client.on(
               flags:
                 MessageFlags.Ephemeral
             });
+
           }
 
           const section =
@@ -1699,6 +1776,7 @@ client.on(
               ) {
 
                 return 'ไม่มี Key';
+
               }
 
               return keys[cat]
@@ -1708,29 +1786,31 @@ client.on(
                     `${i + 1}. \`${k}\``
                 )
                 .join('\n');
+
             };
 
           return interaction.reply({
             content:
               `🔑 **Key คงเหลือ**\n\n` +
 
-              `**1 วัน (${keys.day1.length})**\n` +
-              section('day1') +
-
-              `\n\n**2 วัน (${keys.day2.length})**\n` +
+              `**2 วัน (${keys.day2.length})**\n` +
               section('day2') +
 
               `\n\n**3 วัน (${keys.day3.length})**\n` +
-              section('day3'),
+              section('day3') +
+
+              `\n\n**7 วัน (${keys.day7.length})**\n` +
+              section('day7'),
 
             flags:
               MessageFlags.Ephemeral
           });
+
         }
 
-        // =============================================
+        // =================================================
         // /ล้างคีย์
-        // =============================================
+        // =================================================
 
         if (
           name === 'ล้างคีย์'
@@ -1748,6 +1828,7 @@ client.on(
               flags:
                 MessageFlags.Ephemeral
             });
+
           }
 
           const target =
@@ -1762,14 +1843,15 @@ client.on(
           ) {
 
             keys = {
-              day1: [],
               day2: [],
-              day3: []
+              day3: [],
+              day7: []
             };
 
           } else {
 
             keys[target] = [];
+
           }
 
           saveKeys(keys);
@@ -1782,7 +1864,9 @@ client.on(
             flags:
               MessageFlags.Ephemeral
           });
+
         }
+
       }
 
       // =================================================
@@ -1813,6 +1897,7 @@ client.on(
             flags:
               MessageFlags.Ephemeral
           });
+
         }
 
         if (
@@ -1826,6 +1911,7 @@ client.on(
             flags:
               MessageFlags.Ephemeral
           });
+
         }
 
         const modal =
@@ -1867,6 +1953,7 @@ client.on(
         );
 
         return;
+
       }
 
       // =================================================
@@ -1897,9 +1984,9 @@ client.on(
             flags:
               MessageFlags.Ephemeral
           });
+
         }
 
-        // กันคนเดิมส่งคำขอซ้อน
         if (
           buyingNow.has(
             interaction.user.id
@@ -1912,6 +1999,7 @@ client.on(
             flags:
               MessageFlags.Ephemeral
           });
+
         }
 
         if (
@@ -1925,6 +2013,7 @@ client.on(
             flags:
               MessageFlags.Ephemeral
           });
+
         }
 
         const voucher =
@@ -1947,10 +2036,6 @@ client.on(
               MessageFlags.Ephemeral
           });
 
-          // ==========================================
-          // รับเงิน
-          // ==========================================
-
           const payment =
             await receiveTrueMoney(
               voucher,
@@ -1969,11 +2054,8 @@ client.on(
             });
 
             return;
-          }
 
-          // ==========================================
-          // ตรวจ Key อีกครั้ง
-          // ==========================================
+          }
 
           if (
             !keys[productId] ||
@@ -1986,11 +2068,8 @@ client.on(
             });
 
             return;
-          }
 
-          // ==========================================
-          // ตัด Key
-          // ==========================================
+          }
 
           const key =
             takeKey(
@@ -2005,11 +2084,8 @@ client.on(
             });
 
             return;
-          }
 
-          // ==========================================
-          // ส่ง DM
-          // ==========================================
+          }
 
           try {
 
@@ -2038,7 +2114,6 @@ client.on(
 
           } catch (dmError) {
 
-            // คืน Key ถ้าส่ง DM ไม่ได้
             keys[productId].unshift(
               key
             );
@@ -2052,11 +2127,8 @@ client.on(
             });
 
             return;
-          }
 
-          // ==========================================
-          // สำเร็จ
-          // ==========================================
+          }
 
           await interaction.editReply({
             content:
@@ -2072,9 +2144,11 @@ client.on(
           buyingNow.delete(
             interaction.user.id
           );
+
         }
 
         return;
+
       }
 
       // =================================================
@@ -2112,6 +2186,7 @@ client.on(
             flags:
               MessageFlags.Ephemeral
           });
+
         }
 
         const now =
@@ -2140,6 +2215,7 @@ client.on(
             flags:
               MessageFlags.Ephemeral
           });
+
         }
 
         if (
@@ -2156,6 +2232,7 @@ client.on(
             flags:
               MessageFlags.Ephemeral
           });
+
         }
 
         cooldowns[userId] =
@@ -2193,9 +2270,11 @@ client.on(
           spinningNow.delete(
             userId
           );
+
         }
 
         return;
+
       }
 
     } catch (error) {
@@ -2225,11 +2304,15 @@ client.on(
             flags:
               MessageFlags.Ephemeral
           });
+
         }
 
       } catch {}
+
     }
+
   }
+
 );
 
 // =====================================================
@@ -2243,6 +2326,7 @@ if (!process.env.TOKEN) {
   );
 
   process.exit(1);
+
 }
 
 if (!process.env.CLIENT_ID) {
@@ -2252,6 +2336,7 @@ if (!process.env.CLIENT_ID) {
   );
 
   process.exit(1);
+
 }
 
 client.login(
