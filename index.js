@@ -1,14 +1,11 @@
-// index.js — Discord Bot + TrueMoney Auto-Payment
 const {
   Client, GatewayIntentBits, Partials, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   EmbedBuilder, MessageFlags, Events, PermissionFlagsBits, REST, Routes,
   SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle
 } = require('discord.js');
 const express = require('express');
-const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config();
 
 const client = new Client({
   intents: [
@@ -19,7 +16,7 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
-// ===== ตั้งคา่ =====
+// ===== ตังคา่ =====
 const COOLDOWN_MS = 60 * 60 * 1000;
 
 // ระบบสุม
@@ -37,7 +34,6 @@ const SHOP_TO_SPIN = { shopday2: 'day2', shopday3: 'day3' };
 
 // TrueMoney
 const TRUE_PHONE = process.env.TRUE_PHONE || '0935914844';
-const TRUE_WEBHOOK = process.env.TRUE_WEBHOOK || '';
 
 // ===== Data Files =====
 const DATA_DIR = path.join(__dirname, 'data');
@@ -113,7 +109,7 @@ function formatRemaining(ms) {
   const totalMin = Math.ceil(ms / 60000);
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
-  if (h > 0) return `${h} ชัวโมง ${m} นาที`;
+  if (h > 0) return `${h} ชั่วโมง ${m} นาที`;
   return `${m} นาที`;
 }
 
@@ -140,10 +136,8 @@ app.use(express.json());
 app.post('/webhook/truemoney', async (req, res) => {
   try {
     const { phone, amount, ref, timestamp } = req.body;
-
     console.log(`[TrueMoney] รับซอง: ${phone} จำนวน ${amount} บาท (ref: ${ref})`);
 
-    // บันทึก transaction
     const txn = {
       id: generateTransactionId(),
       phone,
@@ -156,15 +150,14 @@ app.post('/webhook/truemoney', async (req, res) => {
     transactions.transactions.push(txn);
     saveJSON(TRANSACTIONS_FILE, transactions);
 
-    // แจ้งเจ้าของบอท
     try {
       const owner = await client.users.fetch(config.ownerId);
       await owner.send({
         embeds: [
           new EmbedBuilder()
-            .setTitle('💰 มีซองเขามา!')
+            .setTitle('💰 มีซองเข้ามา!')
             .setDescription(
-              `**เบอร:** ${phone}\n` +
+              `**เบอร์:** ${phone}\n` +
               `**จำนวน:** ${amount} บาท\n` +
               `**Ref:** ${ref}\n` +
               `**เวลา:** ${new Date(txn.timestamp).toLocaleString('th-TH')}`
@@ -198,21 +191,21 @@ async function deployCommands() {
   const commands = [
     new SlashCommandBuilder()
       .setName('เลือกห้อง')
-      .setDescription('สร้างปุ่มสุม (เลือกระยะเวลา 1/2/3 วัน)')
-      .addStringOption(o => o.setName('หัวข้อ').setDescription('ชือหัวข้อ / ชือหน้าต่าง').setRequired(false).setMaxLength(100))
-      .addStringOption(o => o.setName('รายการ1').setDescription('ชือห้อง / รายการ').setRequired(true).setMaxLength(80))
+      .setDescription('สร้างปุ่มสุ่ม (เลือกระยะเวลา 1/2/3 วัน)')
+      .addStringOption(o => o.setName('หัวข้อ').setDescription('ชื่อหัวข้อ / ชื่อหน้าต่าง').setRequired(false).setMaxLength(100))
+      .addStringOption(o => o.setName('รายการ1').setDescription('ชื่อห้อง / รายการ').setRequired(true).setMaxLength(80))
       .toJSON(),
 
     new SlashCommandBuilder()
       .setName('เลือกห้องขาย')
-      .setDescription('สร้างปุ่มขายคีย (2/3 วัน)')
-      .addStringOption(o => o.setName('หัวข้อ').setDescription('ชือหัวข้อ / ชือหน้าต่าง').setRequired(false).setMaxLength(100))
-      .addStringOption(o => o.setName('รายการ1').setDescription('ชือห้อง / รายการ').setRequired(true).setMaxLength(80))
+      .setDescription('สร้างปุ่มขายคีย์ (2/3 วัน)')
+      .addStringOption(o => o.setName('หัวข้อ').setDescription('ชื่อหัวข้อ / ชื่อหน้าต่าง').setRequired(false).setMaxLength(100))
+      .addStringOption(o => o.setName('รายการ1').setDescription('ชื่อห้อง / รายการ').setRequired(true).setMaxLength(80))
       .toJSON(),
 
     new SlashCommandBuilder()
-      .setName('เพิ่มคีย')
-      .setDescription('เพิ่ม Key สุม (แอดมินเท่านั้น)')
+      .setName('เพิ่มคีย์')
+      .setDescription('เพิ่ม Key สุ่ม (แอดมินเท่านั้น)')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .addStringOption(o => o.setName('ประเภท').setDescription('ระยะเวลาของ Key')
         .setRequired(true)
@@ -221,11 +214,11 @@ async function deployCommands() {
           { name: '2 วัน', value: 'day2' },
           { name: '3 วัน', value: 'day3' },
         ))
-      .addStringOption(o => o.setName('keys').setDescription('ใส่ Key คันด้วย , หรือขึนบรรทัดใหม่').setRequired(true))
+      .addStringOption(o => o.setName('keys').setDescription('ใส่ Key คั่นด้วย , หรือขึ้นบรรทัดใหม่').setRequired(true))
       .toJSON(),
 
     new SlashCommandBuilder()
-      .setName('เพิ่มคียขาย')
+      .setName('เพิ่มคีย์ขาย')
       .setDescription('เพิ่ม Key ขาย (แอดมินเท่านั้น)')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .addStringOption(o => o.setName('ประเภท').setDescription('ระยะเวลาของ Key')
@@ -234,24 +227,24 @@ async function deployCommands() {
           { name: '2 วัน', value: 'shopday2' },
           { name: '3 วัน', value: 'shopday3' },
         ))
-      .addStringOption(o => o.setName('keys').setDescription('ใส่ Key คันด้วย , หรือขึนบรรทัดใหม่').setRequired(true))
+      .addStringOption(o => o.setName('keys').setDescription('ใส่ Key คั่นด้วย , หรือขึ้นบรรทัดใหม่').setRequired(true))
       .toJSON(),
 
     new SlashCommandBuilder()
-      .setName('ดูคีย')
+      .setName('ดูคีย์')
       .setDescription('ดู Key ทั้งหมด (แอดมินเท่านั้น)')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .toJSON(),
 
     new SlashCommandBuilder()
-      .setName('ล้างคีย')
+      .setName('ล้างคีย์')
       .setDescription('ล้าง Key (แอดมินเท่านั้น)')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-      .addStringOption(o => o.setName('ประเภท').setDescription('เลือกประเภททีจะล้าง (ไม่เลือก = ล้างทั้งหมด)').setRequired(false)
+      .addStringOption(o => o.setName('ประเภท').setDescription('เลือกประเภทที่จะล้าง (ไม่เลือก = ล้างทั้งหมด)').setRequired(false)
         .addChoices(
-          { name: 'สุม 1 วัน', value: 'day1' },
-          { name: 'สุม 2 วัน', value: 'day2' },
-          { name: 'สุม 3 วัน', value: 'day3' },
+          { name: 'สุ่ม 1 วัน', value: 'day1' },
+          { name: 'สุ่ม 2 วัน', value: 'day2' },
+          { name: 'สุ่ม 3 วัน', value: 'day3' },
           { name: 'ขาย 2 วัน', value: 'shopday2' },
           { name: 'ขาย 3 วัน', value: 'shopday3' },
           { name: 'ทั้งหมด', value: 'all' },
@@ -260,7 +253,7 @@ async function deployCommands() {
 
     new SlashCommandBuilder()
       .setName('รายการโอนเงิน')
-      .setDescription('ดูรายการซองทีกอน (แอดมินเท่านั้น)')
+      .setDescription('ดูรายการซองที่ผ่านมา (แอดมินเท่านั้น)')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .toJSON(),
   ];
@@ -269,17 +262,17 @@ async function deployCommands() {
   try {
     if (process.env.GUILD_ID) {
       await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commands });
-      console.log('✅ ลงทะเบียนคำสังในเซิรฟ์เวอรสำเรจ');
+      console.log('✅ ลงทะเบียนคำสั่งในเซิร์ฟเวอร์สำเรจ');
     } else {
       await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-      console.log('✅ ลงทะเบียนคำสัง Global สำเรจ');
+      console.log('✅ ลงทะเบียนคำสั่ง Global สำเรจ');
     }
   } catch (err) {
-    console.error('ลงทะเบียนคำสังไม่สำเรจ:', err.message);
+    console.error('ลงทะเบียนคำสั่งไม่สำเรจ:', err.message);
   }
 }
 
-// ===== สร้างแถวปุ่มสุม =====
+// ===== สร้างแถวปุ่มสุ่ม =====
 function buildSpinRows(idSuffix) {
   const row = new ActionRowBuilder();
   for (const cat of SPIN_CATEGORIES) {
@@ -325,7 +318,7 @@ function categoryFromShopId(customId) {
   return null;
 }
 
-// ===== อัปเดตแผงสุม =====
+// ===== อัปเดตแผงสุ่ม =====
 async function refreshPanel(message) {
   try {
     if (!message || !message.embeds || !message.embeds.length) return;
@@ -343,7 +336,7 @@ async function refreshPanel(message) {
     });
     await message.edit({ embeds: [newEmbed], components: newRows });
   } catch (e) {
-    console.error('อัปเดตแผงสุมไม่สำเรจ:', e.message);
+    console.error('อัปเดตแผงสุ่มไม่สำเรจ:', e.message);
   }
 }
 
@@ -400,7 +393,7 @@ async function refreshAllPanels() {
   }
 }
 
-// ===== วงลอสุม =====
+// ===== วงล้อสุ่ม =====
 async function spinWheel(interaction, itemName, category) {
   const frames = [
     '🎡 ▶ ได้ ◀     ไม่ได้',
@@ -438,14 +431,14 @@ async function spinWheel(interaction, itemName, category) {
           embeds: [
             new EmbedBuilder()
               .setTitle('🎉 คุณชนะ!')
-              .setDescription(`คุณสุมจาก **${tag}** แล้วได้ Key\n\n\`\`\`\n${key}\n\`\`\`\nกรุณาเก็บรักษาดีนะครับ`)
+              .setDescription(`คุณสุ่มจาก **${tag}** แล้วได้ Key\n\n\`\`\`\n${key}\n\`\`\`\nกรุณาเก็บรักษาไว้นะครับ`)
               .setColor(0x57F287)
               .setTimestamp()
           ]
         });
         msg = config.messages.win;
       } catch (err) {
-        msg = `🎉 **คุณชนะ!**\n(ส่ง DM ไม่สำเรจ เพราะคุณปิดรับข้อความจากบอท)\n\nนียังคิ Key ของคุณ:\n\`\`\`\n${key}\n\`\`\``;
+        msg = `🎉 **คุณชนะ!**\n(ส่ง DM ไม่สำเรจ เพราะคุณปิดรับข้อความจากบอท)\n\nนี่คือ Key ของคุณ:\n\`\`\`\n${key}\n\`\`\``;
       }
     }
   } else {
@@ -457,7 +450,7 @@ async function spinWheel(interaction, itemName, category) {
   await refreshPanel(interaction.message);
 }
 
-// ===== ขายคีย (Modal กรอกเบอรทรู + จำนวน) =====
+// ===== ขายคีย์ (Modal กรอกเบอร์ทรู + จำนวน) =====
 async function buyKey(interaction, itemName, category) {
   const price = SHOP_PRICE[category];
   const label = SHOP_CHOICE_LABEL[category];
@@ -468,18 +461,18 @@ async function buyKey(interaction, itemName, category) {
 
   const phoneInput = new TextInputBuilder()
     .setCustomId('truemoney_phone')
-    .setLabel('เบอรทรูมุนนีทีสงมา')
+    .setLabel('เบอร์ทรูมันนี่ที่ส่งมา')
     .setStyle(TextInputStyle.Short)
-    .setPlaceholder('เชน 08xxxxxxxx')
+    .setPlaceholder('เช่น 08xxxxxxxx')
     .setRequired(true)
     .setMaxLength(15)
     .setMinLength(10);
 
   const amountInput = new TextInputBuilder()
     .setCustomId('amount')
-    .setLabel(`จำนวนเงินทีสง (${price} บาท)`)
+    .setLabel(`จำนวนเงินที่ส่ง (${price} บาท)`)
     .setStyle(TextInputStyle.Short)
-    .setPlaceholder(`เชน ${price}`)
+    .setPlaceholder(`เช่น ${price}`)
     .setRequired(true)
     .setMaxLength(6)
     .setMinLength(1);
@@ -505,16 +498,16 @@ client.once(Events.ClientReady, async (c) => {
           .setTitle('🤖 บอทพร้อมใช้งานแล้ว')
           .setDescription(
             `**สถานะ:** ออนไลน์\n` +
-            `**Key คงเหลือ:** สุม 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}\n` +
+            `**Key คงเหลือ:** สุ่ม 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}\n` +
             `**Key ขาย:** 2วัน ${shopKeys.shopday2.length} • 3วัน ${shopKeys.shopday3.length}\n` +
             `**TrueMoney:** ${TRUE_PHONE}\n` +
-            `**Webhook:** http://your-server:${PORT}/webhook/truemoney\n` +
-            `\n**คำสังหลัก:**\n` +
-            `\`/เลือกห้อง\` → สร้างปุ่มสุม\n` +
+            `**Webhook:** http://your-server:${process.env.PORT || 3000}/webhook/truemoney\n\n` +
+            `**คำสั่งหลัก:**\n` +
+            `\`/เลือกห้อง\` → สร้างปุ่มสุ่ม\n` +
             `\`/เลือกห้องขาย\` → สร้างปุ่มขาย\n` +
-            `\`/เพิ่มคีย\` → เพิ่ม Key สุม\n` +
-            `\`/เพิ่มคียขาย\` → เพิ่ม Key ขาย\n` +
-            `\`/ดูคีย\` → ดู Key ทีเหลือ\n` +
+            `\`/เพิ่มคีย์\` → เพิ่ม Key สุ่ม\n` +
+            `\`/เพิ่มคีย์ขาย\` → เพิ่ม Key ขาย\n` +
+            `\`/ดูคีย์\` → ดู Key ที่เหลือ\n` +
             `\`/รายการโอนเงิน\` → ดูรายการซอง`
           )
           .setColor(0x57F287)
@@ -526,7 +519,7 @@ client.once(Events.ClientReady, async (c) => {
   }
 });
 
-// ===== รับ DM จากเจ้าของบอท → เก็บเป็น Key อัตโนมัต =====
+// ===== รับ DM จากเจ้าของบอท → เก็บเป็น Key อัตโนมัติ =====
 client.on(Events.MessageCreate, async (message) => {
   try {
     if (message.author.bot) return;
@@ -547,7 +540,7 @@ client.on(Events.MessageCreate, async (message) => {
 
     const newKeys = parseKeysInput(body);
     if (!newKeys.length) {
-      return message.reply('❌ ไม่พบข้อความ Key ทีจะเพิ่ม');
+      return message.reply('❌ ไม่พบข้อความ Key ที่จะเพิ่ม');
     }
 
     keys[category].push(...newKeys);
@@ -556,7 +549,7 @@ client.on(Events.MessageCreate, async (message) => {
 
     await message.reply(
       `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเรจ **${newKeys.length}** อัน\n` +
-      `ตอนนีเหลือ: 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}`
+      `ตอนนี้เหลือ: 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}`
     );
   } catch (e) {
     console.error('รับ DM key ไม่สำเรจ:', e.message);
@@ -571,7 +564,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // /เลือกห้อง
       if (name === 'เลือกห้อง') {
-        const title = interaction.options.getString('หัวข้อ') || '🎡 เลือกห้อง / สุมรางวัล';
+        const title = interaction.options.getString('หัวข้อ') || '🎡 เลือกห้อง / สุ่มรางวัล';
         const item = interaction.options.getString('รายการ1', true).trim();
 
         const idSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -581,8 +574,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           .setTitle(title)
           .setDescription(
             `**${item}**\n\n` +
-            `เลือกระยะเวลาทีต้องการสุม แล้วกดปุ่มเพือหมุนวงลอ\n` +
-            `สุมได้ **1 ครัง / ${COOLDOWN_MS / 60000} นาที** ต่อคน\n` +
+            `เลือกระยะเวลาที่ต้องการสุ่ม แล้วกดปุ่มเพื่อหมุนวงล้อ\n` +
+            `สุ่มได้ **1 ครั้ง / ${COOLDOWN_MS / 60000} นาที** ต่อคน\n` +
             `ผลลัพธ์จะเห็นเฉพาะคุณเท่านั้น\n\n` +
             `🔹 ${SPIN_LABEL.day1}\n🔹 ${SPIN_LABEL.day2}\n🔹 ${SPIN_LABEL.day3}`
           )
@@ -599,7 +592,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // /เลือกห้องขาย
       if (name === 'เลือกห้องขาย') {
-        const title = interaction.options.getString('หัวข้อ') || '💰 ซื้อ Key — ชำระเงินทรูมุนนี';
+        const title = interaction.options.getString('หัวข้อ') || '💰 ซื้อ Key — ชำระเงินทรูมันนี่';
         const item = interaction.options.getString('รายการ1', true).trim();
 
         const idSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -609,11 +602,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
           .setTitle(title)
           .setDescription(
             `**${item}**\n\n` +
-            `เลือกระยะเวลาทีต้องการ แล้วกดปุ่มเพือชำระเงิน\n` +
-            `กรอกเบอรทรูมุนนีทีสงมา + จำนวนเงิน\n` +
+            `เลือกระยะเวลาที่ต้องการ แล้วกดปุ่มเพื่อชำระเงิน\n` +
+            `กรอกเบอร์ทรูมันนี่ที่ส่งมา + จำนวนเงิน\n` +
             `เจ้าของจะตรวจสอบและส่ง Key ทาง DM\n\n` +
             `💰 ${SHOP_LABEL.shopday2}\n💰 ${SHOP_LABEL.shopday3}\n\n` +
-            `📲 ชำระทีกอนทีกอน: **${TRUE_PHONE}** (TrueMoney Wallet)`
+            `📲 ชำระได้ที่: **${TRUE_PHONE}** (TrueMoney Wallet)`
           )
           .setColor(0x57F287)
           .setFooter({ text: shopFooterText() })
@@ -626,10 +619,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      // /เพิ่มคีย
-      if (name === 'เพิ่มคีย') {
+      // /เพิ่มคีย์
+      if (name === 'เพิ่มคีย์') {
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-          return interaction.reply({ content: '❌ คำสังนีสำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
+          return interaction.reply({ content: '❌ คำสั่งนี้สำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
         }
 
         const category = interaction.options.getString('ประเภท', true);
@@ -637,7 +630,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const newKeys = parseKeysInput(input);
 
         if (!newKeys.length) {
-          return interaction.reply({ content: '❌ ไม่พบ Key ทีจะเพิ่ม', flags: MessageFlags.Ephemeral });
+          return interaction.reply({ content: '❌ ไม่พบ Key ที่จะเพิ่ม', flags: MessageFlags.Ephemeral });
         }
 
         keys[category].push(...newKeys);
@@ -646,15 +639,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         return interaction.reply({
           content: `✅ เพิ่ม Key ประเภท **${CHOICE_LABEL[category]}** สำเรจ **${newKeys.length}** อัน\n` +
-            `ตอนนีเหลือ: 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}`,
+            `ตอนนี้เหลือ: 1วัน ${keys.day1.length} • 2วัน ${keys.day2.length} • 3วัน ${keys.day3.length}`,
           flags: MessageFlags.Ephemeral
         });
       }
 
-      // /เพิ่มคียขาย
-      if (name === 'เพิ่มคียขาย') {
+      // /เพิ่มคีย์ขาย
+      if (name === 'เพิ่มคีย์ขาย') {
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-          return interaction.reply({ content: '❌ คำสังนีสำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
+          return interaction.reply({ content: '❌ คำสั่งนี้สำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
         }
 
         const category = interaction.options.getString('ประเภท', true);
@@ -662,7 +655,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const newKeys = parseKeysInput(input);
 
         if (!newKeys.length) {
-          return interaction.reply({ content: '❌ ไม่พบ Key ทีจะเพิ่ม', flags: MessageFlags.Ephemeral });
+          return interaction.reply({ content: '❌ ไม่พบ Key ที่จะเพิ่ม', flags: MessageFlags.Ephemeral });
         }
 
         shopKeys[category].push(...newKeys);
@@ -675,10 +668,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
 
-      // /ดูคีย
-      if (name === 'ดูคีย') {
+      // /ดูคีย์
+      if (name === 'ดูคีย์') {
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-          return interaction.reply({ content: '❌ คำสังนีสำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
+          return interaction.reply({ content: '❌ คำสั่งนี้สำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
         }
 
         const section = (list, name) => {
@@ -690,19 +683,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.reply({
           content:
             `🔑 **Key คงเหลือ**\n\n` +
-            `**สุม — 1 วัน (${keys.day1.length} อัน)**\n${section(keys.day1, '1 วัน')}\n\n` +
-            `**สุม — 2 วัน (${keys.day2.length} อัน)**\n${section(keys.day2, '2 วัน')}\n\n` +
-            `**สุม — 3 วัน (${keys.day3.length} อัน)**\n${section(keys.day3, '3 วัน')}\n\n` +
+            `**สุ่ม — 1 วัน (${keys.day1.length} อัน)**\n${section(keys.day1, '1 วัน')}\n\n` +
+            `**สุ่ม — 2 วัน (${keys.day2.length} อัน)**\n${section(keys.day2, '2 วัน')}\n\n` +
+            `**สุ่ม — 3 วัน (${keys.day3.length} อัน)**\n${section(keys.day3, '3 วัน')}\n\n` +
             `**ขาย — 2 วัน (${shopKeys.shopday2.length} อัน)**\n${section(shopKeys.shopday2, 'ขาย 2 วัน')}\n\n` +
             `**ขาย — 3 วัน (${shopKeys.shopday3.length} อัน)**\n${section(shopKeys.shopday3, 'ขาย 3 วัน')}`,
           flags: MessageFlags.Ephemeral
         });
       }
 
-      // /ล้างคีย
-      if (name === 'ล้างคีย') {
+      // /ล้างคีย์
+      if (name === 'ล้างคีย์') {
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-          return interaction.reply({ content: '❌ คำสังนีสำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
+          return interaction.reply({ content: '❌ คำสั่งนี้สำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
         }
 
         const target = interaction.options.getString('ประเภท') || 'all';
@@ -713,24 +706,24 @@ client.on(Events.InteractionCreate, async (interaction) => {
           saveJSON(KEYS_FILE, keys);
           saveJSON(SHOP_KEYS_FILE, shopKeys);
           await refreshAllPanels();
-          return interaction.reply({ content: '🗑️ ล้าง Key ทั้งหมดเรียบรอยแล้ว', flags: MessageFlags.Ephemeral });
+          return interaction.reply({ content: '🗑️ ล้าง Key ทั้งหมดเรียบร้อยแล้ว', flags: MessageFlags.Ephemeral });
         } else if (target.startsWith('shop')) {
           shopKeys[target] = [];
           saveJSON(SHOP_KEYS_FILE, shopKeys);
           await refreshAllPanels();
-          return interaction.reply({ content: `🗑️ ล้าง Key ขาย ประเภท **${SHOP_CHOICE_LABEL[target]}** เรียบรอยแล้ว`, flags: MessageFlags.Ephemeral });
+          return interaction.reply({ content: `🗑️ ล้าง Key ขาย ประเภท **${SHOP_CHOICE_LABEL[target]}** แล้ว`, flags: MessageFlags.Ephemeral });
         } else {
           keys[target] = [];
           saveJSON(KEYS_FILE, keys);
           await refreshAllPanels();
-          return interaction.reply({ content: `🗑️ ล้าง Key สุม ประเภท **${CHOICE_LABEL[target]}** เรียบรอยแล้ว`, flags: MessageFlags.Ephemeral });
+          return interaction.reply({ content: `🗑️ ล้าง Key สุ่ม ประเภท **${CHOICE_LABEL[target]}** แล้ว`, flags: MessageFlags.Ephemeral });
         }
       }
 
       // /รายการโอนเงิน
       if (name === 'รายการโอนเงิน') {
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-          return interaction.reply({ content: '❌ คำสังนีสำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
+          return interaction.reply({ content: '❌ คำสั่งนี้สำหรับแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
         }
 
         const recent = transactions.transactions.slice(-20).reverse();
@@ -744,13 +737,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }).join('\n');
 
         return interaction.reply({
-          content: `📋 **20 รายการลาสุด**\n\n${lines}`,
+          content: `📋 **20 รายการล่าสุด**\n\n${lines}`,
           flags: MessageFlags.Ephemeral
         });
       }
     }
 
-    // กดปุ่มสุม
+    // กดปุ่มสุ่ม
     if (interaction.isButton() && interaction.customId.startsWith('spin_')) {
       const category = categoryFromSpinId(interaction.customId);
       if (!category) return;
@@ -758,7 +751,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const userId = interaction.user.id;
 
       if (spinningNow.has(userId)) {
-        return interaction.reply({ content: '⏳ กำลังหมุนอยู กรุณารอสักครู...', flags: MessageFlags.Ephemeral });
+        return interaction.reply({ content: '⏳ กำลังหมุนอยู่ กรุณารอสักครู่...', flags: MessageFlags.Ephemeral });
       }
 
       const now = Date.now();
@@ -768,7 +761,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (elapsed < COOLDOWN_MS) {
         const remaining = COOLDOWN_MS - elapsed;
         return interaction.reply({
-          content: `⏰ คุณเพิงุมไปแล้ว กรุณารออีก **${formatRemaining(remaining)}** ก่อนุมครังถัดไป`,
+          content: `⏰ คุณเพิ่งสุ่มไปแล้ว กรุณารออีก **${formatRemaining(remaining)}** ก่อนสุ่มครั้งถัดไป`,
           flags: MessageFlags.Ephemeral
         });
       }
@@ -804,7 +797,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await buyKey(interaction, itemName, category);
     }
 
-    // Modal submit (กรอกเบอรทรู + จำนวน)
+    // Modal submit (กรอกเบอร์ทรู + จำนวน)
     if (interaction.isModalSubmit() && interaction.customId.startsWith('buy_modal_')) {
       const category = interaction.customId.split('_')[2];
       const phone = interaction.fields.getTextInputValue('truemoney_phone');
@@ -812,7 +805,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const label = SHOP_CHOICE_LABEL[category];
       const price = SHOP_PRICE[category];
 
-      // บันทึกคำสงซือ
       const order = {
         id: generateTransactionId(),
         userId: interaction.user.id,
@@ -828,20 +820,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
       transactions.transactions.push(order);
       saveJSON(TRANSACTIONS_FILE, transactions);
 
-      // แจ้งเจ้าของบอท
       try {
         const owner = await client.users.fetch(config.ownerId);
         await owner.send({
           embeds: [
             new EmbedBuilder()
-              .setTitle('🛒 มีคำสงซือ Key!')
+              .setTitle('🛒 มีคำสั่งซื้อ Key!')
               .setDescription(
-                `**ผู้สง:** ${interaction.user.tag} (${interaction.user.id})\n` +
+                `**ผู้ส่ง:** ${interaction.user.tag} (${interaction.user.id})\n` +
                 `**ประเภท:** ${label}\n` +
-                `**เบอรทรูทีสงมา:** ${phone}\n` +
-                `**จำนวนเงินทีระบุ:** ${amount} บาท\n` +
-                `**ราคาทีตองการ:** ${price} บาท\n\n` +
-                `กรุณาตรวจสอบการโอนเงิน แล้วพิมพส่ง Key ทาง DM ให้ผู้ใช้ได้เลย`
+                `**เบอร์ทรูที่ส่งมา:** ${phone}\n` +
+                `**จำนวนเงินที่ระบุ:** ${amount} บาท\n` +
+                `**ราคาที่ต้องการ:** ${price} บาท\n\n` +
+                `กรุณาตรวจสอบการโอนเงิน แล้วพิมพ์ส่ง Key ทาง DM ให้ผู้ใช้ได้เลย`
               )
               .setColor(0xFFD700)
               .setTimestamp()
@@ -851,15 +842,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
         console.log('ส่ง DM แจ้งเจ้าของไม่สำเรจ');
       }
 
-      // ตอบกลับผู้ใช้
       await interaction.reply({
         content:
-          `✅ รับคำสงซือแล้ว!\n\n` +
+          `✅ รับคำสั่งซื้อแล้ว!\n\n` +
           `**ประเภท:** ${label}\n` +
-          `**เบอรทรูทีคณสงมา:** ${phone}\n` +
+          `**เบอร์ทรูที่คุณส่งมา:** ${phone}\n` +
           `**จำนวน:** ${amount} บาท\n\n` +
           `กรุณารอเจ้าของตรวจสอบการโอนเงิน\n` +
-          `เมือตรวจสอบแล้วเจ้าของจะส่ง Key ทาง DM ให้ครับ 🙏`,
+          `เมื่อตรวจสอบแล้วเจ้าของจะส่ง Key ทาง DM ให้ครับ 🙏`,
         flags: MessageFlags.Ephemeral
       });
     }
