@@ -47,37 +47,48 @@ const client = new Client({
 
 const COOLDOWN_MS = 60 * 60 * 1000;
 
-// เปลี่ยนเป็น 2 / 3 / 7 วัน
-const CATEGORIES = [
+// หมวดสำหรับ "แจก" (วงล้อ) — มี 1/2/3/7 วัน
+const GIVEAWAY_CATEGORIES = [
+  'day1',
+  'day2',
+  'day3',
+  'day7'
+];
+
+// หมวดสำหรับ "ชื้อ" (ร้านค้า) — มีแค่ 2/3/7 วัน
+const BUY_CATEGORIES = [
   'day2',
   'day3',
   'day7'
 ];
 
 // =====================================================
-// โอกาสสุ่ม
+// โอกาสสุ่ม (เฉพาะฝั่งแจก/วงล้อ)
 // =====================================================
 
 const WIN_CHANCE = {
+  day1: 0.40,
   day2: 0.25,
   day3: 0.10,
   day7: 0.05
 };
 
 const LABEL = {
+  day1: '1 วัน (40%)',
   day2: '2 วัน (25%)',
   day3: '3 วัน (10%)',
   day7: '7 วัน (5%)'
 };
 
 const CHOICE_LABEL = {
+  day1: '1 วัน',
   day2: '2 วัน',
   day3: '3 วัน',
   day7: '7 วัน'
 };
 
 // =====================================================
-// สินค้าสำหรับ "ซื้อ"
+// สินค้าสำหรับ "ซื้อ" (ไม่มี 1 วัน)
 // =====================================================
 
 const PRODUCTS = {
@@ -131,7 +142,26 @@ if (!fs.existsSync(DATA_DIR)) {
 
 // =====================================================
 // LOAD / SAVE KEYS
+// แยกเป็น 2 สต็อก: giveaway (แจก/วงล้อ) และ buy (ชื้อ/ร้านค้า)
 // =====================================================
+
+function emptyKeys() {
+
+  return {
+    giveaway: {
+      day1: [],
+      day2: [],
+      day3: [],
+      day7: []
+    },
+    buy: {
+      day2: [],
+      day3: [],
+      day7: []
+    }
+  };
+
+}
 
 function loadKeys() {
 
@@ -146,21 +176,43 @@ function loadKeys() {
         )
       );
 
-      return {
+      // รูปแบบใหม่ (มี giveaway/buy อยู่แล้ว)
+      if (data.giveaway || data.buy) {
 
-        day2: Array.isArray(data.day2)
-          ? data.day2
-          : [],
+        return {
+          giveaway: {
+            day1: Array.isArray(data.giveaway?.day1) ? data.giveaway.day1 : [],
+            day2: Array.isArray(data.giveaway?.day2) ? data.giveaway.day2 : [],
+            day3: Array.isArray(data.giveaway?.day3) ? data.giveaway.day3 : [],
+            day7: Array.isArray(data.giveaway?.day7) ? data.giveaway.day7 : []
+          },
+          buy: {
+            day2: Array.isArray(data.buy?.day2) ? data.buy.day2 : [],
+            day3: Array.isArray(data.buy?.day3) ? data.buy.day3 : [],
+            day7: Array.isArray(data.buy?.day7) ? data.buy.day7 : []
+          }
+        };
 
-        day3: Array.isArray(data.day3)
-          ? data.day3
-          : [],
+      }
 
-        day7: Array.isArray(data.day7)
-          ? data.day7
-          : []
+      // รูปแบบเก่า (ไฟล์แบน day2/day3/day7 ใช้ร่วมกัน)
+      // ย้ายของเก่าเข้าไปไว้ที่สต็อก "ชื้อ" เท่านั้น
+      // เพื่อกันไม่ให้ Key เดียวกันถูกแจกออกไปซ้ำ 2 ทาง
+      if (
+        Array.isArray(data.day2) ||
+        Array.isArray(data.day3) ||
+        Array.isArray(data.day7)
+      ) {
 
-      };
+        const result = emptyKeys();
+
+        result.buy.day2 = Array.isArray(data.day2) ? data.day2 : [];
+        result.buy.day3 = Array.isArray(data.day3) ? data.day3 : [];
+        result.buy.day7 = Array.isArray(data.day7) ? data.day7 : [];
+
+        return result;
+
+      }
 
     }
 
@@ -173,11 +225,7 @@ function loadKeys() {
 
   }
 
-  return {
-    day2: [],
-    day3: [],
-    day7: []
-  };
+  return emptyKeys();
 
 }
 
@@ -377,9 +425,13 @@ function formatRemaining(ms) {
 function footerText() {
 
   return (
-    `2วัน เหลือ ${keys.day2.length} • ` +
-    `3วัน เหลือ ${keys.day3.length} • ` +
-    `7วัน เหลือ ${keys.day7.length}`
+    `🎡 แจก » 1วัน ${keys.giveaway.day1.length} • ` +
+    `2วัน ${keys.giveaway.day2.length} • ` +
+    `3วัน ${keys.giveaway.day3.length} • ` +
+    `7วัน ${keys.giveaway.day7.length}\n` +
+    `🛒 ชื้อ » 2วัน ${keys.buy.day2.length} • ` +
+    `3วัน ${keys.buy.day3.length} • ` +
+    `7วัน ${keys.buy.day7.length}`
   );
 
 }
@@ -521,7 +573,7 @@ function buildShopEmbed(
 }
 
 // =====================================================
-// SHOP BUTTONS
+// SHOP BUTTONS (ใช้สต็อก keys.buy)
 // =====================================================
 
 function buildShopButtons() {
@@ -543,7 +595,7 @@ function buildShopButtons() {
             ButtonStyle.Primary
           )
           .setDisabled(
-            keys.day2.length === 0
+            keys.buy.day2.length === 0
           ),
 
         new ButtonBuilder()
@@ -558,7 +610,7 @@ function buildShopButtons() {
             ButtonStyle.Secondary
           )
           .setDisabled(
-            keys.day3.length === 0
+            keys.buy.day3.length === 0
           ),
 
         new ButtonBuilder()
@@ -573,7 +625,7 @@ function buildShopButtons() {
             ButtonStyle.Success
           )
           .setDisabled(
-            keys.day7.length === 0
+            keys.buy.day7.length === 0
           )
 
       )
@@ -583,7 +635,7 @@ function buildShopButtons() {
 }
 
 // =====================================================
-// WHEEL BUTTONS
+// WHEEL BUTTONS (ใช้สต็อก keys.giveaway)
 // =====================================================
 
 function buildWheelRows(
@@ -594,7 +646,7 @@ function buildWheelRows(
     new ActionRowBuilder();
 
   for (
-    const category of CATEGORIES
+    const category of GIVEAWAY_CATEGORIES
   ) {
 
     row.addComponents(
@@ -611,7 +663,7 @@ function buildWheelRows(
         )
         .setEmoji('🎡')
         .setDisabled(
-          keys[category].length === 0
+          keys.giveaway[category].length === 0
         )
 
     );
@@ -631,7 +683,7 @@ function categoryFromCustomId(
 ) {
 
   for (
-    const cat of CATEGORIES
+    const cat of GIVEAWAY_CATEGORIES
   ) {
 
     if (
@@ -652,13 +704,18 @@ function categoryFromCustomId(
 
 // =====================================================
 // TAKE KEY
+// poolType: 'giveaway' | 'buy'
 // =====================================================
 
-function takeKey(category) {
+function takeKey(poolType, category) {
+
+  const pool =
+    keys[poolType];
 
   if (
-    !keys[category] ||
-    keys[category].length === 0
+    !pool ||
+    !pool[category] ||
+    pool[category].length === 0
   ) {
 
     return null;
@@ -666,7 +723,7 @@ function takeKey(category) {
   }
 
   const key =
-    keys[category].shift();
+    pool[category].shift();
 
   saveKeys(keys);
 
@@ -720,20 +777,26 @@ async function refreshPanel(
                 comp
               );
 
-            const cat =
-              categoryFromCustomId(
-                comp.customId
-              );
-
-            if (cat) {
-
-              button.setDisabled(
-                keys[cat].length === 0
-              );
-
-            }
-
             if (
+              comp.customId.startsWith(
+                'spin_'
+              )
+            ) {
+
+              const cat =
+                categoryFromCustomId(
+                  comp.customId
+                );
+
+              if (cat) {
+
+                button.setDisabled(
+                  keys.giveaway[cat].length === 0
+                );
+
+              }
+
+            } else if (
               comp.customId.startsWith(
                 'buy_'
               )
@@ -746,11 +809,11 @@ async function refreshPanel(
                 );
 
               if (
-                keys[buyCat]
+                keys.buy[buyCat]
               ) {
 
                 button.setDisabled(
-                  keys[buyCat].length === 0
+                  keys.buy[buyCat].length === 0
                 );
 
               }
@@ -1034,7 +1097,7 @@ async function spinWheel(
   if (isWin) {
 
     const key =
-      takeKey(category);
+      takeKey('giveaway', category);
 
     if (!key) {
 
@@ -1115,7 +1178,7 @@ async function spinWheel(
 
     if (!dmSuccess) {
 
-      keys[category].unshift(
+      keys.giveaway[category].unshift(
         key
       );
 
@@ -1196,22 +1259,17 @@ async function deployCommands() {
           o
             .setName('ประเภท')
             .setDescription(
-              'ประเภท Key'
+              'สต็อก + ระยะเวลา'
             )
             .setRequired(true)
             .addChoices(
-              {
-                name: '2 วัน',
-                value: 'day2'
-              },
-              {
-                name: '3 วัน',
-                value: 'day3'
-              },
-              {
-                name: '7 วัน',
-                value: 'day7'
-              }
+              { name: '🎡 แจก - 1 วัน', value: 'giveaway_day1' },
+              { name: '🎡 แจก - 2 วัน', value: 'giveaway_day2' },
+              { name: '🎡 แจก - 3 วัน', value: 'giveaway_day3' },
+              { name: '🎡 แจก - 7 วัน', value: 'giveaway_day7' },
+              { name: '🛒 ชื้อ - 2 วัน', value: 'buy_day2' },
+              { name: '🛒 ชื้อ - 3 วัน', value: 'buy_day3' },
+              { name: '🛒 ชื้อ - 7 วัน', value: 'buy_day7' }
             )
       )
       .addStringOption(
@@ -1248,26 +1306,18 @@ async function deployCommands() {
           o
             .setName('ประเภท')
             .setDescription(
-              'ประเภทที่จะล้าง'
+              'สต็อก + ระยะเวลาที่จะล้าง'
             )
             .setRequired(false)
             .addChoices(
-              {
-                name: '2 วัน',
-                value: 'day2'
-              },
-              {
-                name: '3 วัน',
-                value: 'day3'
-              },
-              {
-                name: '7 วัน',
-                value: 'day7'
-              },
-              {
-                name: 'ทั้งหมด',
-                value: 'all'
-              }
+              { name: '🎡 แจก - 1 วัน', value: 'giveaway_day1' },
+              { name: '🎡 แจก - 2 วัน', value: 'giveaway_day2' },
+              { name: '🎡 แจก - 3 วัน', value: 'giveaway_day3' },
+              { name: '🎡 แจก - 7 วัน', value: 'giveaway_day7' },
+              { name: '🛒 ชื้อ - 2 วัน', value: 'buy_day2' },
+              { name: '🛒 ชื้อ - 3 วัน', value: 'buy_day3' },
+              { name: '🛒 ชื้อ - 7 วัน', value: 'buy_day7' },
+              { name: 'ทั้งหมด', value: 'all' }
             )
       )
       .toJSON()
@@ -1338,15 +1388,16 @@ client.once(
     );
 
     console.log(
-      `📦 2 วัน: ${keys.day2.length}`
+      `📦 แจก 1วัน: ${keys.giveaway.day1.length} • ` +
+      `2วัน: ${keys.giveaway.day2.length} • ` +
+      `3วัน: ${keys.giveaway.day3.length} • ` +
+      `7วัน: ${keys.giveaway.day7.length}`
     );
 
     console.log(
-      `📦 3 วัน: ${keys.day3.length}`
-    );
-
-    console.log(
-      `📦 7 วัน: ${keys.day7.length}`
+      `📦 ชื้อ 2วัน: ${keys.buy.day2.length} • ` +
+      `3วัน: ${keys.buy.day3.length} • ` +
+      `7วัน: ${keys.buy.day7.length}`
     );
 
     await deployCommands();
@@ -1365,10 +1416,16 @@ client.once(
               '🤖 บอทพร้อมใช้งาน'
             )
             .setDescription(
-              `2 วัน: ${keys.day2.length}\n` +
-              `3 วัน: ${keys.day3.length}\n` +
-              `7 วัน: ${keys.day7.length}\n\n` +
-              `ซื้อ: 2 วัน 10 บาท / 3 วัน 15 บาท / 7 วัน 35 บาท`
+              `🎡 แจก » 1วัน ${keys.giveaway.day1.length} • ` +
+              `2วัน ${keys.giveaway.day2.length} • ` +
+              `3วัน ${keys.giveaway.day3.length} • ` +
+              `7วัน ${keys.giveaway.day7.length}\n` +
+              `🛒 ชื้อ » 2วัน ${keys.buy.day2.length} • ` +
+              `3วัน ${keys.buy.day3.length} • ` +
+              `7วัน ${keys.buy.day7.length}\n\n` +
+              `ซื้อ: 2 วัน 10 บาท / 3 วัน 15 บาท / 7 วัน 35 บาท\n\n` +
+              `เพิ่ม Key: พิมพ์ \`แจก:N คีย์\` หรือ \`ชื้อN: คีย์\` ` +
+              `(N = 1/2/3/7 สำหรับแจก, 2/3/7 สำหรับชื้อ)`
             )
             .setColor(
               0x57F287
@@ -1381,6 +1438,129 @@ client.once(
   }
 
 );
+
+// =====================================================
+// เพิ่ม Key ผ่านข้อความ
+// รูปแบบ:
+//   แจก:1 KEY-XXXX      → เข้าสต็อก giveaway (แจกวงล้อ) หมวด day1
+//   แจก:2 KEY-XXXX      → giveaway day2
+//   ชื้อ2: KEY-XXXX     → เข้าสต็อก buy (ร้านค้า) หมวด day2
+// รองรับหลาย Key โดยขึ้นบรรทัดใหม่
+// =====================================================
+
+function parseAddKeyCommand(raw) {
+
+  // แจก:N (N = 1,2,3,7)
+  let match =
+    raw.match(
+      /^แจก\s*:\s*([1237])\s*\n?([\s\S]+)$/i
+    );
+
+  if (match) {
+
+    const category =
+      `day${match[1]}`;
+
+    if (
+      GIVEAWAY_CATEGORIES.includes(
+        category
+      )
+    ) {
+
+      return {
+        pool: 'giveaway',
+        category,
+        body: match[2]
+      };
+
+    }
+
+  }
+
+  // ชื้อN: (N = 2,3,7)
+  match =
+    raw.match(
+      /^ชื้อ\s*([237])\s*:\s*([\s\S]+)$/i
+    );
+
+  if (match) {
+
+    const category =
+      `day${match[1]}`;
+
+    if (
+      BUY_CATEGORIES.includes(
+        category
+      )
+    ) {
+
+      return {
+        pool: 'buy',
+        category,
+        body: match[2]
+      };
+
+    }
+
+  }
+
+  return null;
+
+}
+
+async function handleAddKeyMessage(
+  message,
+  raw
+) {
+
+  const parsed =
+    parseAddKeyCommand(raw);
+
+  if (!parsed) {
+    return false;
+  }
+
+  const newKeys =
+    parsed.body
+      .split(/\r?\n/)
+      .map(x => x.trim())
+      .filter(Boolean);
+
+  if (!newKeys.length) {
+
+    await message.reply(
+      '❌ ไม่พบ Key'
+    );
+
+    return true;
+
+  }
+
+  keys[parsed.pool][parsed.category].push(
+    ...newKeys
+  );
+
+  saveKeys(keys);
+
+  await refreshAllPanels();
+
+  const poolLabel =
+    parsed.pool === 'giveaway'
+      ? '🎡 แจก'
+      : '🛒 ชื้อ';
+
+  const reply =
+    await message.reply(
+      `✅ เพิ่ม Key สำเร็จ\n\n` +
+      `สต็อก: **${poolLabel}**\n` +
+      `ประเภท: **${CHOICE_LABEL[parsed.category]}**\n` +
+      `เพิ่ม: **${newKeys.length}** Key\n` +
+      `คงเหลือ: **${keys[parsed.pool][parsed.category].length}**`
+    );
+
+  return { reply };
+
+}
 
 // =====================================================
 // MESSAGE CREATE
@@ -1408,18 +1588,6 @@ client.on(
 
       // =================================================
       // DM เจ้าของ → เพิ่ม Key
-      //
-      // ใช้:
-      //
-      // ชื้อ2: KEY
-      // ชื้อ3: KEY
-      // ชื้อ7: KEY
-      //
-      // หลาย Key:
-      //
-      // ชื้อ2: KEY-001
-      // KEY-002
-      // KEY-003
       // =================================================
 
       if (isDM) {
@@ -1432,59 +1600,16 @@ client.on(
           return;
         }
 
-        const match =
-          raw.match(
-            /^ชื้อ\s*([237])\s*:\s*(.+)$/is
-          );
-
-        if (!match) {
-          return;
-        }
-
-        const category =
-          `day${match[1]}`;
-
-        const newKeys =
-          match[2]
-            .split(/\r?\n/)
-            .map(
-              x => x.trim()
-            )
-            .filter(Boolean);
-
-        if (!newKeys.length) {
-
-          await message.reply(
-            '❌ ไม่พบ Key'
-          );
-
-          return;
-        }
-
-        keys[category].push(
-          ...newKeys
-        );
-
-        saveKeys(keys);
-
-        await refreshAllPanels();
-
-        await message.reply(
-          `✅ เพิ่ม Key สำเร็จ\n\n` +
-          `ประเภท: **${CHOICE_LABEL[category]}**\n` +
-          `เพิ่ม: **${newKeys.length}** Key\n` +
-          `คงเหลือ: **${keys[category].length}**`
+        await handleAddKeyMessage(
+          message,
+          raw
         );
 
         return;
       }
 
       // =================================================
-      // Server → รองรับเพิ่ม Key แบบเดิมสำหรับ Admin
-      //
-      // 2: KEY
-      // 3: KEY
-      // 7: KEY
+      // ในเซิร์ฟเวอร์ → แอดมินเท่านั้น
       // =================================================
 
       if (
@@ -1496,56 +1621,31 @@ client.on(
         return;
       }
 
-      const prefixMatch =
-        raw.match(
-          /^([237])\s*(?:วัน)?\s*[:\-]\s*(.+)$/s
+      const result =
+        await handleAddKeyMessage(
+          message,
+          raw
         );
 
-      if (!prefixMatch) {
-        return;
-      }
+      if (
+        result &&
+        result.reply
+      ) {
 
-      const category =
-        `day${prefixMatch[1]}`;
+        setTimeout(
+          () => {
 
-      const newKeys =
-        prefixMatch[2]
-          .split(/\r?\n/)
-          .map(
-            x => x.trim()
-          )
-          .filter(Boolean);
+            message.delete()
+              .catch(() => {});
 
-      if (!newKeys.length) {
-        return;
-      }
+            result.reply.delete()
+              .catch(() => {});
 
-      keys[category].push(
-        ...newKeys
-      );
-
-      saveKeys(keys);
-
-      await refreshAllPanels();
-
-      const confirm =
-        await message.reply(
-          `✅ เพิ่ม Key ${CHOICE_LABEL[category]} ` +
-          `จำนวน ${newKeys.length} อัน`
+          },
+          5000
         );
 
-      setTimeout(
-        () => {
-
-          message.delete()
-            .catch(() => {});
-
-          confirm.delete()
-            .catch(() => {});
-
-        },
-        5000
-      );
+      }
 
     } catch (error) {
 
@@ -1614,11 +1714,6 @@ client.on(
               idSuffix
             );
 
-          const shopEmbed =
-            buildShopEmbed(
-              `🛒 ${item}`
-            );
-
           const wheelEmbed =
             new EmbedBuilder()
               .setTitle(
@@ -1628,6 +1723,7 @@ client.on(
                 `**${item}**\n\n` +
                 `🎡 เลือกระยะเวลาเพื่อสุ่ม\n` +
                 `หรือเลือกซื้อ Key ด้านล่าง\n\n` +
+                `🔹 ${LABEL.day1}\n` +
                 `🔹 ${LABEL.day2}\n` +
                 `🔹 ${LABEL.day3}\n` +
                 `🔹 ${LABEL.day7}`
@@ -1691,12 +1787,15 @@ client.on(
 
           }
 
-          const category =
+          const combo =
             interaction.options
               .getString(
                 'ประเภท',
                 true
               );
+
+          const [pool, category] =
+            combo.split('_');
 
           const input =
             interaction.options
@@ -1723,7 +1822,7 @@ client.on(
 
           }
 
-          keys[category].push(
+          keys[pool][category].push(
             ...newKeys
           );
 
@@ -1731,14 +1830,16 @@ client.on(
 
           await refreshAllPanels();
 
+          const poolLabel =
+            pool === 'giveaway'
+              ? '🎡 แจก'
+              : '🛒 ชื้อ';
+
           return interaction.reply({
             content:
-              `✅ เพิ่ม Key ${CHOICE_LABEL[category]} ` +
+              `✅ เพิ่ม Key ${poolLabel} ${CHOICE_LABEL[category]} ` +
               `จำนวน ${newKeys.length} อัน\n` +
-              `คงเหลือ: ` +
-              `2วัน ${keys.day2.length} • ` +
-              `3วัน ${keys.day3.length} • ` +
-              `7วัน ${keys.day7.length}`,
+              `คงเหลือ: ${keys[pool][category].length}`,
             flags:
               MessageFlags.Ephemeral
           });
@@ -1769,17 +1870,20 @@ client.on(
           }
 
           const section =
-            cat => {
+            (pool, cat) => {
+
+              const arr =
+                keys[pool][cat];
 
               if (
-                !keys[cat].length
+                !arr.length
               ) {
 
                 return 'ไม่มี Key';
 
               }
 
-              return keys[cat]
+              return arr
                 .slice(0, 10)
                 .map(
                   (k, i) =>
@@ -1793,14 +1897,16 @@ client.on(
             content:
               `🔑 **Key คงเหลือ**\n\n` +
 
-              `**2 วัน (${keys.day2.length})**\n` +
-              section('day2') +
+              `**🎡 แจก (วงล้อ)**\n` +
+              `— 1 วัน (${keys.giveaway.day1.length})\n${section('giveaway', 'day1')}\n\n` +
+              `— 2 วัน (${keys.giveaway.day2.length})\n${section('giveaway', 'day2')}\n\n` +
+              `— 3 วัน (${keys.giveaway.day3.length})\n${section('giveaway', 'day3')}\n\n` +
+              `— 7 วัน (${keys.giveaway.day7.length})\n${section('giveaway', 'day7')}\n\n` +
 
-              `\n\n**3 วัน (${keys.day3.length})**\n` +
-              section('day3') +
-
-              `\n\n**7 วัน (${keys.day7.length})**\n` +
-              section('day7'),
+              `**🛒 ชื้อ (ร้านค้า)**\n` +
+              `— 2 วัน (${keys.buy.day2.length})\n${section('buy', 'day2')}\n\n` +
+              `— 3 วัน (${keys.buy.day3.length})\n${section('buy', 'day3')}\n\n` +
+              `— 7 วัน (${keys.buy.day7.length})\n${section('buy', 'day7')}`,
 
             flags:
               MessageFlags.Ephemeral
@@ -1842,15 +1948,14 @@ client.on(
             target === 'all'
           ) {
 
-            keys = {
-              day2: [],
-              day3: [],
-              day7: []
-            };
+            keys = emptyKeys();
 
           } else {
 
-            keys[target] = [];
+            const [pool, category] =
+              target.split('_');
+
+            keys[pool][category] = [];
 
           }
 
@@ -1870,7 +1975,7 @@ client.on(
       }
 
       // =================================================
-      // BUY BUTTON
+      // BUY BUTTON (ใช้สต็อก keys.buy)
       // =================================================
 
       if (
@@ -1901,8 +2006,8 @@ client.on(
         }
 
         if (
-          !keys[productId] ||
-          keys[productId].length === 0
+          !keys.buy[productId] ||
+          keys.buy[productId].length === 0
         ) {
 
           return interaction.reply({
@@ -1957,7 +2062,7 @@ client.on(
       }
 
       // =================================================
-      // PAYMENT MODAL
+      // PAYMENT MODAL (ใช้สต็อก keys.buy)
       // =================================================
 
       if (
@@ -2003,8 +2108,8 @@ client.on(
         }
 
         if (
-          !keys[productId] ||
-          keys[productId].length === 0
+          !keys.buy[productId] ||
+          keys.buy[productId].length === 0
         ) {
 
           return interaction.reply({
@@ -2058,8 +2163,8 @@ client.on(
           }
 
           if (
-            !keys[productId] ||
-            keys[productId].length === 0
+            !keys.buy[productId] ||
+            keys.buy[productId].length === 0
           ) {
 
             await interaction.editReply({
@@ -2073,6 +2178,7 @@ client.on(
 
           const key =
             takeKey(
+              'buy',
               productId
             );
 
@@ -2114,7 +2220,7 @@ client.on(
 
           } catch (dmError) {
 
-            keys[productId].unshift(
+            keys.buy[productId].unshift(
               key
             );
 
@@ -2152,7 +2258,7 @@ client.on(
       }
 
       // =================================================
-      // SPIN BUTTON
+      // SPIN BUTTON (ใช้สต็อก keys.giveaway)
       // =================================================
 
       if (
@@ -2219,7 +2325,7 @@ client.on(
         }
 
         if (
-          keys[category].length === 0
+          keys.giveaway[category].length === 0
         ) {
 
           await refreshPanel(
