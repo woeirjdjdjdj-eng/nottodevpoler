@@ -4,7 +4,7 @@ module.exports = {
   ownerId: "1425184210976505898",
 
   // โอกาสชนะ (0.5 = 50%)
-  winChance: 0.5,
+  winChance: 0.1,
 
   // ข้อความ
   messages: {
